@@ -3,12 +3,14 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../constants/theme';
+import { createStackNavigator } from '@react-navigation/stack';
 
 // User Screens
 import HomeScreen from '../user/home';
 import BookingScreen from '../user/booking';
 import HistoryScreen from '../user/history';
 import ProfileScreen from '../user/profile';
+import ChangePasswordScreen from '../user/changePassword';
 
 // User Tab Param List
 export type UserTabParamList = {
@@ -18,8 +20,22 @@ export type UserTabParamList = {
   Profile: undefined;
 };
 
-const Tab = createBottomTabNavigator<UserTabParamList>();
+export type ProfileStackParamList = {
+  ProfileMain: undefined;
+  ChangePassword: undefined;
+};
 
+const Tab = createBottomTabNavigator<UserTabParamList>();
+const ProfileStack = createStackNavigator<ProfileStackParamList>();
+
+function ProfileStackNavigator() {
+  return (
+    <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
+      <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
+      <ProfileStack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+    </ProfileStack.Navigator>
+  );
+}
 const UserNavigator = () => {
   return (
     <Tab.Navigator
@@ -71,7 +87,7 @@ const UserNavigator = () => {
       />
       <Tab.Screen 
         name="Profile" 
-        component={ProfileScreen} 
+        component={ProfileStackNavigator} 
         options={{
           title: 'My Profile',
           tabBarIcon: ({ color, size }) => (

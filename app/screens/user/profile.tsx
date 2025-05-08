@@ -1,3 +1,4 @@
+
 // app/screens/user/profile.tsx
 import React, { useState, useEffect } from 'react';
 import {
@@ -22,8 +23,14 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../../src/firebase/firebaseConfig';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import type { User } from '../../../src/firebase/types';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { ProfileStackParamList } from '../navigators/userNavigator';
+
+type ProfileScreenNavigationProp = StackNavigationProp<ProfileStackParamList>;
 
 export default function ProfileScreen() {
+  const navigation = useNavigation<ProfileScreenNavigationProp>();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [displayName, setDisplayName] = useState('');
@@ -331,7 +338,10 @@ export default function ProfileScreen() {
             </View>
           </View>
           
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('ChangePassword')}
+          >
             <View style={styles.menuItemIconContainer}>
               <Ionicons name="key-outline" size={20} color={colors.primary} />
             </View>

@@ -14,6 +14,11 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebaseConfig';
 import { User, UserRole } from './types';
+import { 
+  EmailAuthProvider, 
+  reauthenticateWithCredential, 
+  updatePassword 
+} from 'firebase/auth';
 
 // Regex pattern for staff ID validation
 export const STAFF_ID_REGEX = /^[A-Z]{3}\d{2}-\d{3}$/;
@@ -260,4 +265,34 @@ export async function signOut(): Promise<void> {
 export async function isUserAdmin(): Promise<boolean> {
   const user = await getCurrentUser();
   return user?.role === 'admin';
+}
+
+export async function changeUserPassword(
+  currentPassword: string, 
+  newPassword: string
+): Promise<void> {
+  try {
+    const user = auth.currentUser;
+    
+    if (!user || !user.email) {
+      throw new Error('User not authenticated');
+    }
+    
+    // Re-authenticate user before changing password
+    const credential = EmailAuthProvider.credential(
+      user.email,
+      currentPassword
+    );
+    
+    // This verifies the current password is correct
+    await reauthenticateWithCredential(user, credential);
+    
+    // If re-authentication successful, update password
+    await updatePassword(user, newPassword);
+    
+    console.log('Password updated successfully');
+  } catch (error) {
+    console.error('Error changing password:', error);
+    throw error;
+  }
 }
