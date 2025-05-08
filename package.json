@@ -1,0 +1,36 @@
+{
+  "name": "lanesparking",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@react-native-firebase/app": "^22.1.0",
+    "@react-native-firebase/auth": "^22.1.0",
+    "@react-navigation/native": "^7.1.8",
+    "@react-navigation/stack": "^7.3.1",
+    "expo": "~53.0.8",
+    "expo-constants": "~17.1.6",
+    "expo-linking": "~7.1.4",
+    "expo-router": "~5.0.6",
+    "expo-status-bar": "~2.2.3",
+    "firebase": "^11.7.1",
+    "react": "19.0.0",
+    "react-native": "0.79.2",
+    "react-native-safe-area-context": "^5.4.0",
+    "react-native-screens": "~4.10.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~19.0.10",
+    "typescript": "~5.8.3"
+  },
+  "private": true,
+  "expo": {
+    "jsEngine": "jsc"
+  }
+}
