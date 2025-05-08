@@ -11,10 +11,16 @@ import {
   ScrollView,
   TextInput,
   Switch,
+  Image,
+  Platform,
 } from 'react-native';
 import { signOut, getCurrentUser } from '../../../src/firebase/auth';
 import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../../../src/firebase/firebaseConfig';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import type { User } from '../../../src/firebase/types';
 
 export default function ProfileScreen() {
@@ -24,7 +30,10 @@ export default function ProfileScreen() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
+  
   useEffect(() => {
     const loadUser = async () => {
       try {
@@ -33,6 +42,9 @@ export default function ProfileScreen() {
         if (currentUser) {
           setUser(currentUser);
           setDisplayName(currentUser.displayName || '');
+          if (currentUser.profileImageUrl) {
+            setProfileImage(currentUser.profileImageUrl);
+          }
         }
       } catch (err) {
         console.error('Error loading user profile:', err);
@@ -44,6 +56,88 @@ export default function ProfileScreen() {
 
     loadUser();
   }, []);
+
+  const requestPermissions = async () => {
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to make this work!');
+        return false;
+      }
+      return true;
+    }
+    return true;
+  };
+
+  const pickImage = async () => {
+    const permissionGranted = await requestPermissions();
+    
+    if (!permissionGranted) return;
+
+    try {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedAsset = result.assets[0];
+        uploadProfileImage(selectedAsset.uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image');
+    }
+  };
+
+  const uploadProfileImage = async (uri: string) => {
+    if (!user) return;
+    
+    try {
+      setUploadingImage(true);
+      
+      // Convert URI to blob
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      
+      // Create a reference to Firebase Storage
+      const storage = getStorage();
+      const filename = `profileImages/${user.id}_${new Date().getTime()}`;
+      const storageRef = ref(storage, filename);
+      
+      // Upload the blob
+      await uploadBytes(storageRef, blob);
+      
+      // Get the download URL
+      const downloadURL = await getDownloadURL(storageRef);
+      
+      // Update user document in Firestore
+      const userRef = doc(db, "users", user.id);
+      await updateDoc(userRef, {
+        profileImageUrl: downloadURL
+      });
+      
+      // Update local state
+      setProfileImage(downloadURL);
+      
+      // Update user object
+      if (user) {
+        setUser({
+          ...user,
+          profileImageUrl: downloadURL
+        });
+      }
+      
+      Alert.alert('Success', 'Profile picture updated successfully');
+    } catch (error) {
+      console.error('Error uploading profile image:', error);
+      Alert.alert('Error', 'Failed to upload profile image');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   const handleSignOut = async () => {
     Alert.alert(
@@ -74,19 +168,23 @@ export default function ProfileScreen() {
   };
 
   const handleSaveDisplayName = async () => {
-    // In a real app, you would update the display name in Firebase
-    // For now, we'll just update the local state
+    if (!user) return;
+    
     try {
-      // Simulate API call
       setLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 500));
       
-      if (user) {
-        setUser({
-          ...user,
-          displayName: displayName,
-        });
-      }
+      // Update Firestore document
+      const userRef = doc(db, "users", user.id);
+      await updateDoc(userRef, {
+        displayName: displayName
+      });
+      
+      // Update local state
+      setUser({
+        ...user,
+        displayName: displayName,
+      });
+      
       setIsEditingName(false);
       Alert.alert('Success', 'Display name updated successfully');
     } catch (err) {
@@ -123,13 +221,34 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.profileCard}>
           <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {user.displayName
-                  ? user.displayName.charAt(0).toUpperCase()
-                  : user.email?.charAt(0).toUpperCase() || 'U'}
-              </Text>
-            </View>
+            <TouchableOpacity 
+              style={styles.avatarWrapper}
+              onPress={pickImage}
+              disabled={uploadingImage}
+            >
+              {uploadingImage ? (
+                <View style={styles.avatar}>
+                  <ActivityIndicator color="#FFFFFF" />
+                </View>
+              ) : profileImage ? (
+                <Image 
+                  source={{ uri: profileImage }} 
+                  style={styles.avatarImage} 
+                />
+              ) : (
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>
+                    {user.displayName
+                      ? user.displayName.charAt(0).toUpperCase()
+                      : user.email?.charAt(0).toUpperCase() || 'U'}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.cameraBadge}>
+                <Ionicons name="camera" size={14} color="#FFFFFF" />
+              </View>
+            </TouchableOpacity>
+            
             <View style={styles.userInfo}>
               {isEditingName ? (
                 <View style={styles.editNameContainer}>
@@ -171,8 +290,14 @@ export default function ProfileScreen() {
                   </TouchableOpacity>
                 </View>
               )}
+              <Text style={styles.usernameText}>
+                @{user.displayName?.toLowerCase().replace(/\s+/g, '') || user.email?.split('@')[0]}
+              </Text>
               <Text style={styles.emailText}>{user.email}</Text>
-              <View style={styles.roleBadge}>
+              <View style={[
+                styles.roleBadge,
+                { backgroundColor: user.role === 'student' ? colors.studentHighlight : colors.guestHighlight }
+              ]}>
                 <Text style={styles.roleText}>
                   {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                 </Text>
@@ -205,6 +330,16 @@ export default function ProfileScreen() {
               </Text>
             </View>
           </View>
+          
+          <TouchableOpacity style={styles.menuItem}>
+            <View style={styles.menuItemIconContainer}>
+              <Ionicons name="key-outline" size={20} color={colors.primary} />
+            </View>
+            <View style={styles.menuItemContent}>
+              <Text style={styles.menuItemTitle}>Change Password</Text>
+              <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+            </View>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.sectionContainer}>
@@ -224,6 +359,16 @@ export default function ProfileScreen() {
               />
             </View>
           </View>
+          
+          <TouchableOpacity style={styles.menuItem}>
+            <View style={styles.menuItemIconContainer}>
+              <Ionicons name="color-palette-outline" size={20} color={colors.primary} />
+            </View>
+            <View style={styles.menuItemContent}>
+              <Text style={styles.menuItemTitle}>Appearance</Text>
+              <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+            </View>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.sectionContainer}>
@@ -326,19 +471,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  avatarWrapper: {
+    position: 'relative',
+    marginRight: spacing.md,
+  },
   avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: spacing.md,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+  },
+  avatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
   },
   avatarText: {
     fontSize: fontSizes.xl,
     fontWeight: 'bold',
     color: '#FFFFFF',
+  },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: colors.primary,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   userInfo: {
     flex: 1,
@@ -346,13 +516,19 @@ const styles = StyleSheet.create({
   nameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xs / 2,
   },
   nameText: {
     fontSize: fontSizes.lg,
     fontWeight: 'bold',
     color: colors.text,
     marginRight: spacing.xs,
+  },
+  usernameText: {
+    fontSize: fontSizes.md,
+    color: colors.primary,
+    marginBottom: spacing.xs / 2,
+    fontWeight: '500',
   },
   editNameButton: {
     padding: spacing.xs,

@@ -6,9 +6,10 @@ export interface User {
   email: string;
   role: UserRole;
   displayName?: string;
+  profileImageUrl?: string;
   createdAt: string;
   lastLoginAt?: string;
-  staffId?: string;  // Added staffId field for admin users
+  staffId?: string;  
 }
 
 export interface ParkingLot {

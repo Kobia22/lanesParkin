@@ -1,10 +1,12 @@
-// App.tsx - Simplified
+// App.tsx - Modified to get user role from Firestore
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, ActivityIndicator, StatusBar } from 'react-native';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './src/firebase/firebaseConfig';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from './src/firebase/firebaseConfig';
 import { colors } from './app/constants/theme';
+import { User, UserRole } from './src/firebase/types';
 
 // Import Navigators
 import AuthNavigator from './app/screens/navigators/authNavigator';
@@ -13,42 +15,72 @@ import AdminNavigator from './app/screens/navigators/adminNavigator';
 
 export default function App() {
   const [initializing, setInitializing] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState<'admin' | 'student' | 'guest' | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        setIsAuthenticated(true);
-        
-        // Try to figure out the role
-        try {
-          // Using optional import for safety
-          const userEmail = firebaseUser.email || '';
-          if (userEmail.endsWith('@admin.lanesparking.com')) {
-            setUserRole('admin');
-          } else if (userEmail.endsWith('@students.jkuat.ac.ke')) {
-            setUserRole('student');
+    console.log("Setting up auth state listener");
+    
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      try {
+        if (firebaseUser) {
+          console.log(`User authenticated: ${firebaseUser.uid}`);
+          setLoading(true);
+          
+          // Fetch user data from Firestore to get the role
+          const userRef = doc(db, "users", firebaseUser.uid);
+          const userDoc = await getDoc(userRef);
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            console.log(`Firestore user data loaded. Role: ${userData.role}`);
+            
+            setCurrentUser({
+              id: firebaseUser.uid,
+              ...userData as Omit<User, 'id'>
+            });
           } else {
-            setUserRole('guest');
+            console.log("No Firestore document found for user. Creating a fallback user with email-based role.");
+            
+            // Fallback: determine role from email domain
+            const email = firebaseUser.email || '';
+            let role: UserRole = 'guest';
+            
+            if (email.endsWith('@admin.lanesparking.com')) {
+              role = 'admin';
+            } else if (email.endsWith('@students.jkuat.ac.ke')) {
+              role = 'student';
+            }
+            
+            // Create a basic user with email-determined role
+            const basicUser: User = {
+              id: firebaseUser.uid,
+              email: email,
+              role: role,
+              displayName: firebaseUser.displayName || email.split('@')[0] || '',
+              createdAt: new Date().toISOString(),
+              lastLoginAt: new Date().toISOString()
+            };
+            
+            setCurrentUser(basicUser);
           }
-        } catch (error) {
-          console.error('Error determining user role:', error);
-          // Default to guest if we can't determine
-          setUserRole('guest');
+        } else {
+          console.log("No user is signed in");
+          setCurrentUser(null);
         }
-      } else {
-        setIsAuthenticated(false);
-        setUserRole(null);
+      } catch (error) {
+        console.error("Error in auth state change:", error);
+        setCurrentUser(null);
+      } finally {
+        setLoading(false);
+        setInitializing(false);
       }
-      
-      setInitializing(false);
     });
-
+    
     return unsubscribe;
   }, []);
 
-  if (initializing) {
+  if (initializing || loading) {
     return (
       <View style={{ 
         flex: 1, 
@@ -75,9 +107,9 @@ export default function App() {
         backgroundColor={colors.primary}
       />
       <NavigationContainer>
-        {!isAuthenticated ? (
+        {!currentUser ? (
           <AuthNavigator />
-        ) : userRole === 'admin' ? (
+        ) : currentUser.role === 'admin' ? (
           <AdminNavigator />
         ) : (
           <UserNavigator />

@@ -24,6 +24,7 @@ type RegisterScreenProps = {
 
 export default function RegisterScreen({ navigation }: RegisterScreenProps) {
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,7 +44,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
   const handleRegister = async () => {
     try {
       // Validate inputs
-      if (!email || !password || !confirmPassword) {
+      if (!email || !username || !password || !confirmPassword) {
         setError('Please fill in all fields');
         return;
       }
@@ -62,8 +63,8 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
       setError(null);
       setLoading(true);
       
-      // Register the user
-      await registerUser(email, password);
+      // Register the user with username
+      await registerUser(email, password, username);
       
       // Show success message
       Alert.alert(
@@ -137,6 +138,20 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
                 onChangeText={setEmail}
                 autoCapitalize="none"
                 keyboardType="email-address"
+              />
+            </View>
+          </View>
+          
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Username</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="person-outline" size={20} color={colors.textLight} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Choose a username"
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
               />
             </View>
           </View>
