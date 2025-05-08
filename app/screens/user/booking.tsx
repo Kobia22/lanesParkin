@@ -11,6 +11,7 @@ import {
   TextInput,
   SafeAreaView,
   ScrollView,
+  RefreshControl,
 } from 'react-native';
 import {
   getParkingLot,
@@ -23,7 +24,7 @@ import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { RouteProp } from '@react-navigation/native';
-import type { ParkingLot, ParkingSpace } from '../../../src/firebase/types';
+import type { ParkingLot, ParkingSpace, User } from '../../../src/firebase/types';
 
 type UserStackParamList = {
   Home: undefined;
@@ -44,14 +45,20 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
   const [selectedSpace, setSelectedSpace] = useState<ParkingSpace | null>(null);
   const [vehicleReg, setVehicleReg] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  // Load all parking lots and any lot passed in route params
+  // Load user, parking lots, and any lot passed in route params
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
         setLoading(true);
+        
+        // Get current user
+        const user = await getCurrentUser();
+        setCurrentUser(user);
         
         // Fetch all parking lots
         const lots = await fetchParkingLots();
@@ -76,6 +83,29 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
 
     fetchInitialData();
   }, [route.params?.lotId]);
+
+  // Handle refresh
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const lots = await fetchParkingLots();
+      setParkingLots(lots);
+      
+      if (selectedLot) {
+        const updatedLot = await getParkingLot(selectedLot.id);
+        if (updatedLot) {
+          setSelectedLot(updatedLot);
+          const spaces = await fetchParkingSpaces(updatedLot.id);
+          setParkingSpaces(spaces);
+        }
+      }
+    } catch (err) {
+      console.error('Error refreshing data:', err);
+      setError('Failed to refresh data');
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Function to load spaces for a selected lot
   const handleLotSelect = async (lot: ParkingLot) => {
@@ -106,14 +136,14 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
       return;
     }
 
+    if (!currentUser) {
+      Alert.alert('Error', 'You need to be logged in to book a parking space');
+      return;
+    }
+
     try {
       setBookingLoading(true);
       setError(null);
-
-      const currentUser = await getCurrentUser();
-      if (!currentUser) {
-        throw new Error('User not authenticated');
-      }
 
       // Create a new booking
       const startTime = new Date().toISOString();
@@ -122,19 +152,20 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
 
       await createBooking({
         userId: currentUser.id,
+        userEmail: currentUser.email,
+        userRole: currentUser.role,
         lotId: selectedLot.id,
+        lotName: selectedLot.name,
         spaceId: selectedSpace.id,
+        spaceNumber: selectedSpace.number,
         startTime,
         endTime,
-        status: 'active',
-        vehicleRegistration: vehicleReg,
-        paymentStatus: 'completed', // For demo, assume payment is completed
-        amount: 200, // Fixed amount for demo
+        vehicleInfo: vehicleReg,
       });
 
       Alert.alert(
         'Booking Confirmed!',
-        `Your parking space #${selectedSpace.number} has been booked successfully.`,
+        `Your parking space #${selectedSpace.number} has been booked successfully. You have 5 minutes to arrive at the space before the booking expires.`,
         [
           { 
             text: 'View My Bookings', 
@@ -174,7 +205,12 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
     }
   };
 
-  if (loading) {
+  // Determine if a space is bookable
+  const isSpaceBookable = (space: ParkingSpace) => {
+    return space.status === 'vacant';
+  };
+
+  if (loading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -185,7 +221,11 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView>
+      <ScrollView 
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         <View style={styles.header}>
           <Text style={styles.title}>Book a Parking Space</Text>
           {selectedLot && (
@@ -235,6 +275,12 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
                 </TouchableOpacity>
               )}
               contentContainerStyle={styles.lotsList}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="car-outline" size={48} color={colors.textLight} />
+                  <Text style={styles.emptyText}>No parking lots available</Text>
+                </View>
+              }
             />
           </View>
         ) : (
@@ -252,43 +298,63 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
               </TouchableOpacity>
             </View>
             
-            <FlatList
-              data={parkingSpaces}
-              keyExtractor={(item) => item.id}
-              numColumns={4}
-              scrollEnabled={false}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.spaceItem,
-                    item.isOccupied && styles.spaceOccupied,
-                    selectedSpace?.id === item.id && styles.spaceSelected,
-                  ]}
-                  onPress={() => {
-                    if (!item.isOccupied) {
-                      setSelectedSpace(item);
-                    }
-                  }}
-                  disabled={item.isOccupied}
-                >
-                  <Text style={[
-                    styles.spaceNumber,
-                    item.isOccupied && styles.spaceNumberOccupied,
-                    selectedSpace?.id === item.id && styles.spaceNumberSelected,
-                  ]}>
-                    {item.number}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              contentContainerStyle={styles.spacesList}
-              ListEmptyComponent={
-                <View style={styles.emptySpaces}>
-                  <Text style={styles.emptyText}>
-                    No parking spaces available for this lot.
-                  </Text>
+            {parkingSpaces.length > 0 ? (
+              <View style={styles.spacesLayout}>
+                <View style={styles.spaceGrid}>
+                  {parkingSpaces.map((space) => (
+                    <TouchableOpacity
+                      key={space.id}
+                      style={[
+                        styles.spaceItem,
+                        !isSpaceBookable(space) && styles.spaceOccupied,
+                        selectedSpace?.id === space.id && styles.spaceSelected,
+                      ]}
+                      onPress={() => {
+                        if (isSpaceBookable(space)) {
+                          setSelectedSpace(space);
+                        }
+                      }}
+                      disabled={!isSpaceBookable(space)}
+                    >
+                      <Text style={[
+                        styles.spaceNumber,
+                        !isSpaceBookable(space) && styles.spaceNumberOccupied,
+                        selectedSpace?.id === space.id && styles.spaceNumberSelected,
+                      ]}>
+                        {space.number}
+                      </Text>
+                      <View style={[
+                        styles.statusIndicator,
+                        space.status === 'vacant' && styles.vacantIndicator,
+                        space.status === 'occupied' && styles.occupiedIndicator,
+                        space.status === 'booked' && styles.bookedIndicator,
+                      ]} />
+                    </TouchableOpacity>
+                  ))}
                 </View>
-              }
-            />
+                
+                <View style={styles.spaceLegend}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, styles.vacantIndicator]} />
+                    <Text style={styles.legendText}>Available</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, styles.occupiedIndicator]} />
+                    <Text style={styles.legendText}>Occupied</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, styles.bookedIndicator]} />
+                    <Text style={styles.legendText}>Booked</Text>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.emptySpaces}>
+                <Text style={styles.emptyText}>
+                  No parking spaces available for this lot.
+                </Text>
+              </View>
+            )}
 
             {selectedSpace && (
               <View style={styles.bookingForm}>
@@ -310,11 +376,32 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
                 </View>
                 
                 <View style={styles.formField}>
-                  <Text style={styles.formLabel}>Duration:</Text>
-                  <View style={styles.durationPill}>
-                    <Text style={styles.durationText}>8 hours</Text>
-                    <Text style={styles.durationPrice}>KES 200</Text>
+                  <Text style={styles.formLabel}>Pricing Information:</Text>
+                  <View style={styles.pricingInfo}>
+                    {currentUser?.role === 'student' ? (
+                      <View style={styles.pricingItem}>
+                        <Text style={styles.pricingLabel}>Student Rate:</Text>
+                        <Text style={styles.pricingValue}>KSH 200 (fixed daily rate)</Text>
+                      </View>
+                    ) : (
+                      <>
+                        <View style={styles.pricingItem}>
+                          <Text style={styles.pricingLabel}>Guest Rate:</Text>
+                          <Text style={styles.pricingValue}>KSH 50 per hour</Text>
+                        </View>
+                        <View style={styles.pricingItem}>
+                          <Text style={styles.pricingLabel}>First 30 minutes:</Text>
+                          <Text style={styles.pricingValue}>Free</Text>
+                        </View>
+                      </>
+                    )}
                   </View>
+                </View>
+                
+                <View style={styles.formField}>
+                  <Text style={styles.formHelperText}>
+                    * Booking will expire in 5 minutes if you don't arrive at the space
+                  </Text>
                 </View>
                 
                 <TouchableOpacity
@@ -467,8 +554,21 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textDecorationLine: 'underline',
   },
-  spacesList: {
-    paddingHorizontal: spacing.xs,
+  spacesLayout: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  spaceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
   },
   spaceItem: {
     backgroundColor: '#FFFFFF',
@@ -478,20 +578,15 @@ const styles = StyleSheet.create({
     height: 65,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    position: 'relative',
   },
   spaceOccupied: {
     backgroundColor: '#F3F4F6',
-    borderColor: '#E5E7EB',
-    borderWidth: 1,
   },
   spaceSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.secondary,
+    borderColor: colors.primary,
     borderWidth: 2,
   },
   spaceNumber: {
@@ -503,11 +598,54 @@ const styles = StyleSheet.create({
     color: colors.textLight,
   },
   spaceNumberSelected: {
-    color: '#FFFFFF',
+    color: colors.primary,
+  },
+  statusIndicator: {
+    position: 'absolute',
+    bottom: 5,
+    right: 5,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  vacantIndicator: {
+    backgroundColor: colors.success,
+  },
+  occupiedIndicator: {
+    backgroundColor: colors.error,
+  },
+  bookedIndicator: {
+    backgroundColor: colors.accent,
+  },
+  spaceLegend: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: spacing.sm,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: spacing.xs,
+  },
+  legendText: {
+    fontSize: fontSizes.sm,
+    color: colors.textLight,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    padding: spacing.lg,
   },
   emptySpaces: {
     padding: spacing.lg,
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    marginBottom: spacing.md,
   },
   emptyText: {
     color: colors.textLight,
@@ -554,22 +692,29 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     fontSize: fontSizes.md,
   },
-  durationPill: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 5,
+  pricingInfo: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
     padding: spacing.md,
   },
-  durationText: {
-    fontSize: fontSizes.md,
-    color: colors.text,
-    fontWeight: '500',
+  pricingItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
   },
-  durationPrice: {
-    fontSize: fontSizes.md,
-    color: colors.primary,
-    fontWeight: 'bold',
+  pricingLabel: {
+    fontSize: fontSizes.sm,
+    color: colors.textLight,
+  },
+  pricingValue: {
+    fontSize: fontSizes.sm,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  formHelperText: {
+    fontSize: fontSizes.sm,
+    color: colors.accent,
+    fontStyle: 'italic',
   },
   confirmButton: {
     backgroundColor: colors.primary,

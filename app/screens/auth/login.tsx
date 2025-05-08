@@ -12,7 +12,7 @@ import {
   TextInput,
   ScrollView
 } from 'react-native';
-import { signInUser, signInAdmin } from '../../../src/firebase/auth';
+import { signIn } from '../../../src/firebase/auth';
 import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -27,8 +27,6 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isAdminLogin, setIsAdminLogin] = useState(false);
-  const [staffId, setStaffId] = useState('');
 
   // Handle the login process
   const handleLogin = async () => {
@@ -37,164 +35,34 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       setLoading(true);
       
       // Validate inputs
-      if (isAdminLogin) {
-        if (!staffId || !password) {
-          setError('Please enter both Staff ID and password');
-          setLoading(false);
-          return;
-        }
-        
-        // Use the signInAdmin function from auth.ts
-        try {
-          await signInAdmin(staffId, password);
-          // Auth state changes will be caught by the App component
-        } catch (err: any) {
-          if (err.message.includes("Invalid staff ID format")) {
-            setError('Staff ID must be in the format ABC12-123');
-          } else if (err.message.includes("User does not have admin privileges")) {
-            setError('You do not have admin privileges');
-          } else {
-            setError('Invalid staff ID or password');
-          }
-          throw err; // Rethrow to be caught by the outer catch block
-        }
-      } else {
-        // Regular user login
-        if (!email || !password) {
-          setError('Please enter both email and password');
-          setLoading(false);
-          return;
-        }
-        
-        // Use the signInUser function from auth.ts
-        await signInUser(email, password);
-        // Auth state changes will be caught by the App component
+      if (!email || !password) {
+        setError('Please enter both email and password');
+        setLoading(false);
+        return;
       }
+      
+      // Use the signInUser function from auth.ts
+      // This will work for all user types (admin, worker, student, guest)
+      await signIn(email, password);
+      
+      // Auth state changes will be caught by the App component
     } catch (error: any) {
       console.error('Login error:', error);
       
-      // Don't set error message if it's already been set in the inner try/catch
-      if (!error) {
-        // Handle specific firebase error codes
-        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-          setError('Invalid email or password');
-        } else if (error.code === 'auth/invalid-email') {
-          setError('Please enter a valid email address');
-        } else if (error.code === 'auth/too-many-requests') {
-          setError('Too many unsuccessful login attempts. Please try again later');
-        } else {
-          setError('An error occurred during login. Please try again');
-        }
+      // Handle specific firebase error codes
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        setError('Invalid email or password');
+      } else if (error.code === 'auth/invalid-email') {
+        setError('Please enter a valid email address');
+      } else if (error.code === 'auth/too-many-requests') {
+        setError('Too many unsuccessful login attempts. Please try again later');
+      } else {
+        setError('An error occurred during login. Please try again');
       }
     } finally {
       setLoading(false);
     }
   };
-
-  // Define screens based on login mode
-  const renderRegularLoginForm = () => (
-    <>
-      <Text style={styles.subtitle}>Welcome to LanesParking</Text>
-      
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.label}>Email</Text>
-        <View style={styles.inputWrapper}>
-          <Ionicons name="mail-outline" size={20} color={colors.textLight} style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your email"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-          />
-        </View>
-      </View>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.label}>Password</Text>
-        <View style={styles.inputWrapper}>
-          <Ionicons name="lock-closed-outline" size={20} color={colors.textLight} style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
-      </View>
-      
-      <TouchableOpacity style={styles.loginButton} onPress={handleLogin} disabled={loading}>
-        {loading ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.loginButtonText}>Login</Text>
-        )}
-      </TouchableOpacity>
-      
-      <View style={styles.registerContainer}>
-        <Text style={styles.registerText}>Don't have an account? </Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-          <Text style={styles.registerLink}>Register</Text>
-        </TouchableOpacity>
-      </View>
-    </>
-  );
-
-  const renderAdminLoginForm = () => (
-    <>
-      <Text style={styles.subtitle}>Admin Portal</Text>
-      
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.label}>Staff ID</Text>
-        <View style={styles.inputWrapper}>
-          <Ionicons name="person-outline" size={20} color={colors.textLight} style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your Staff ID (e.g., ABC12-123)"
-            value={staffId}
-            onChangeText={setStaffId}
-            autoCapitalize="characters"
-          />
-        </View>
-      </View>
-      
-      <View style={styles.inputContainer}>
-        <Text style={styles.label}>Password</Text>
-        <View style={styles.inputWrapper}>
-          <Ionicons name="lock-closed-outline" size={20} color={colors.textLight} style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
-      </View>
-      
-      <TouchableOpacity style={styles.loginButton} onPress={handleLogin} disabled={loading}>
-        {loading ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.loginButtonText}>Login as Admin</Text>
-        )}
-      </TouchableOpacity>
-    </>
-  );
 
   return (
     <KeyboardAvoidingView 
@@ -207,24 +75,75 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       >
         <View style={styles.header}>
           <Text style={styles.title}>LanesParking</Text>
-          <View style={styles.tabContainer}>
-            <TouchableOpacity 
-              style={[styles.tab, !isAdminLogin && styles.activeTab]}
-              onPress={() => setIsAdminLogin(false)}
-            >
-              <Text style={[styles.tabText, !isAdminLogin && styles.activeTabText]}>User</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.tab, isAdminLogin && styles.activeTab]}
-              onPress={() => setIsAdminLogin(true)}
-            >
-              <Text style={[styles.tabText, isAdminLogin && styles.activeTabText]}>Admin</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.subtitle}>Welcome Back</Text>
         </View>
         
         <View style={styles.formContainer}>
-          {isAdminLogin ? renderAdminLoginForm() : renderRegularLoginForm()}
+          {error && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
+          
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Email</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="mail-outline" size={20} color={colors.textLight} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your email"
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+            </View>
+          </View>
+          
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Password</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="lock-closed-outline" size={20} color={colors.textLight} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+              />
+            </View>
+          </View>
+          
+          <TouchableOpacity style={styles.loginButton} onPress={handleLogin} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.loginButtonText}>Login</Text>
+            )}
+          </TouchableOpacity>
+          
+          <View style={styles.registerContainer}>
+            <Text style={styles.registerText}>Don't have an account? </Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+              <Text style={styles.registerLink}>Register</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.instructionsContainer}>
+            <Text style={styles.instructionsTitle}>Account Types:</Text>
+            <Text style={styles.instructionsText}>
+              • <Text style={styles.boldText}>Students:</Text> Use your student email (@students.jkuat.ac.ke)
+            </Text>
+            <Text style={styles.instructionsText}>
+              • <Text style={styles.boldText}>Admins:</Text> Use your admin email (@admin.lanesparking.com)
+            </Text>
+            <Text style={styles.instructionsText}>
+              • <Text style={styles.boldText}>Workers:</Text> Use your worker email (@worker.lanesparking.com)
+            </Text>
+            <Text style={styles.instructionsText}>
+              • <Text style={styles.boldText}>Guests:</Text> Use any other email format
+            </Text>
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -252,42 +171,16 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.xxl,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 30,
-    width: '80%',
-    marginTop: spacing.md,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    borderRadius: 30,
-  },
-  activeTab: {
-    backgroundColor: '#FFFFFF',
-  },
-  tabText: {
+  subtitle: {
+    fontSize: fontSizes.lg,
     color: '#FFFFFF',
-    fontWeight: '500',
-    fontSize: fontSizes.md,
-  },
-  activeTabText: {
-    color: colors.primary,
+    opacity: 0.9,
   },
   formContainer: {
     padding: spacing.lg,
     paddingTop: spacing.xl,
-  },
-  subtitle: {
-    fontSize: fontSizes.lg,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: spacing.lg,
-    textAlign: 'center',
   },
   errorContainer: {
     backgroundColor: '#FFEBEE',
@@ -353,14 +246,27 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: fontSizes.md,
   },
-  switchModeContainer: {
-    alignItems: 'center',
+  instructionsContainer: {
     marginTop: spacing.xl,
     padding: spacing.md,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
   },
-  switchModeText: {
-    color: colors.primary,
-    fontWeight: '500',
+  instructionsTitle: {
+    fontSize: fontSizes.md,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: spacing.sm,
+  },
+  instructionsText: {
     fontSize: fontSizes.sm,
+    color: colors.textLight,
+    marginBottom: spacing.xs,
   },
+  boldText: {
+    fontWeight: 'bold',
+    color: colors.text,
+  }
 });

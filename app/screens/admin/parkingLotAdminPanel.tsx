@@ -15,10 +15,21 @@ import {
   KeyboardAvoidingView,
   Platform
 } from 'react-native';
-import { fetchParkingLots, addParkingLot, updateParkingLot, deleteParkingLot, addParkingSpace } from '../../../src/firebase/database';
-import { colors, spacing, fontSizes } from '../../constants/theme';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
-import type { ParkingLot, ParkingSpace } from '../../../src/firebase/types';
+import { colors, spacing, fontSizes } from '../../constants/theme';
+import { ParkingLot } from '../../../src/firebase/types';
+import { AdminParkingStackParamList } from '../navigators/adminNavigator';
+
+// Import the API service instead of direct Firebase functions
+import { 
+  getAllParkingLots, 
+  getParkingLotById,
+  createParkingLot, 
+  updateParkingLot, 
+  deleteParkingLot,
+  createMultipleParkingSpaces
+} from '../../../src/api/parkingService';
 
 interface ParkingLotFormData {
   name: string;
@@ -29,7 +40,11 @@ interface ParkingLotFormData {
   bookedSpaces: string;
 }
 
-export default function ParkingLotAdminPanel() {
+type ParkingLotAdminPanelProps = {
+  navigation: StackNavigationProp<AdminParkingStackParamList, 'ParkingLotAdminPanel'>;
+};
+
+export default function ParkingLotAdminPanel({ navigation }: ParkingLotAdminPanelProps) {
   const [parkingLots, setParkingLots] = useState<ParkingLot[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -51,17 +66,17 @@ export default function ParkingLotAdminPanel() {
     loadParkingLots();
   }, []);
 
-  // Function to load all parking lots
+  // Function to load all parking lots using the API
   const loadParkingLots = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const lots = await fetchParkingLots();
+      const lots = await getAllParkingLots();
       setParkingLots(lots);
     } catch (err) {
       console.error('Error fetching parking lots:', err);
-      setError('Failed to load parking lots');
+      setError(err instanceof Error ? err.message : 'Failed to load parking lots');
     } finally {
       setLoading(false);
     }
@@ -93,6 +108,11 @@ export default function ParkingLotAdminPanel() {
       bookedSpaces: lot.bookedSpaces.toString()
     });
     setModalVisible(true);
+  };
+
+  // Navigate to manage spaces for a lot
+  const handleManageSpaces = (lot: ParkingLot) => {
+    navigation.navigate('ParkingSpaceAdminPanel', { lotId: lot.id });
   };
 
   // Save form data (either create or update)
@@ -133,7 +153,7 @@ export default function ParkingLotAdminPanel() {
       };
 
       if (editingLot) {
-        // Update existing lot
+        // Update existing lot using the API
         await updateParkingLot(editingLot.id, lotData);
         setSuccessMessage('Parking lot updated successfully');
         
@@ -142,18 +162,23 @@ export default function ParkingLotAdminPanel() {
           prev.map(lot => lot.id === editingLot.id ? { ...lot, ...lotData } : lot)
         );
       } else {
-        // Create new lot
-        const newLot = await addParkingLot(lotData);
+        // Create new lot using the API
+        const newLot = await createParkingLot(lotData);
         setSuccessMessage('Parking lot added successfully');
         
-        // Create initial parking spaces
-        for (let i = 1; i <= totalSpaces; i++) {
-          await addParkingSpace({
-            lotId: newLot.id,
-            number: i,
-            isOccupied: false,
-            currentBookingId: null
-          });
+        // Create initial parking spaces if requested
+        if (totalSpaces > 0) {
+          try {
+            setSuccessMessage('Creating parking spaces...');
+            
+            // Use the bulk creation API
+            await createMultipleParkingSpaces(newLot.id, 1, totalSpaces);
+            
+            setSuccessMessage(`Parking lot and ${totalSpaces} spaces created successfully`);
+          } catch (err) {
+            console.error('Error creating parking spaces:', err);
+            setSuccessMessage('Parking lot created, but there was an error creating all spaces');
+          }
         }
         
         // Update local state
@@ -164,7 +189,7 @@ export default function ParkingLotAdminPanel() {
       setModalVisible(false);
     } catch (err) {
       console.error('Error saving parking lot:', err);
-      setError('Failed to save parking lot');
+      setError(err instanceof Error ? err.message : 'Failed to save parking lot');
     } finally {
       setSaving(false);
     }
@@ -186,6 +211,7 @@ export default function ParkingLotAdminPanel() {
           onPress: async () => {
             try {
               setLoading(true);
+              // Use the API to delete the lot (and its spaces)
               await deleteParkingLot(lot.id);
               
               // Update local state
@@ -194,7 +220,7 @@ export default function ParkingLotAdminPanel() {
               setSuccessMessage('Parking lot deleted successfully');
             } catch (err) {
               console.error('Error deleting parking lot:', err);
-              setError('Failed to delete parking lot');
+              setError(err instanceof Error ? err.message : 'Failed to delete parking lot');
             } finally {
               setLoading(false);
             }
@@ -202,72 +228,6 @@ export default function ParkingLotAdminPanel() {
         }
       ]
     );
-  };
-
-  // Add test data
-  const handleAddTestData = async () => {
-    try {
-      setSaving(true);
-      
-      const testLots = [
-        { 
-          name: 'Lot A', 
-          location: 'North Wing', 
-          totalSpaces: 10, 
-          availableSpaces: 10,
-          occupiedSpaces: 0,
-          bookedSpaces: 0
-        },
-        { 
-          name: 'Lot B', 
-          location: 'South Wing', 
-          totalSpaces: 10, 
-          availableSpaces: 10,
-          occupiedSpaces: 0,
-          bookedSpaces: 0
-        },
-        { 
-          name: 'Lot C', 
-          location: 'East Wing', 
-          totalSpaces: 10, 
-          availableSpaces: 10,
-          occupiedSpaces: 0,
-          bookedSpaces: 0
-        },
-        { 
-          name: 'Lot D', 
-          location: 'West Wing', 
-          totalSpaces: 10, 
-          availableSpaces: 10,
-          occupiedSpaces: 0,
-          bookedSpaces: 0
-        },
-      ];
-      
-      for (const lotData of testLots) {
-        const newLot = await addParkingLot(lotData);
-        
-        // Create parking spaces for each lot
-        for (let i = 1; i <= lotData.totalSpaces; i++) {
-          await addParkingSpace({
-            lotId: newLot.id,
-            number: i,
-            isOccupied: false,
-            currentBookingId: null
-          });
-        }
-      }
-      
-      // Refresh the list
-      await loadParkingLots();
-      
-      Alert.alert('Success', 'Test lots and spaces added successfully');
-    } catch (err) {
-      console.error('Error adding test data:', err);
-      Alert.alert('Error', 'Failed to add test data');
-    } finally {
-      setSaving(false);
-    }
   };
 
   return (
@@ -301,18 +261,6 @@ export default function ParkingLotAdminPanel() {
               <Ionicons name="add" size={20} color="#FFFFFF" />
               <Text style={styles.addButtonText}>Add New Lot</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.testDataButton}
-              onPress={handleAddTestData}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={styles.testDataButtonText}>Add Test Data</Text>
-              )}
-            </TouchableOpacity>
           </View>
           
           {loading ? (
@@ -337,6 +285,12 @@ export default function ParkingLotAdminPanel() {
                   <View style={styles.lotHeader}>
                     <Text style={styles.lotName}>{item.name}</Text>
                     <View style={styles.lotActions}>
+                      <TouchableOpacity
+                        style={styles.manageButton}
+                        onPress={() => handleManageSpaces(item)}
+                      >
+                        <Ionicons name="grid-outline" size={18} color={colors.primary} />
+                      </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.editButton}
                         onPress={() => handleEditLot(item)}
@@ -383,10 +337,18 @@ export default function ParkingLotAdminPanel() {
                     <View 
                       style={[
                         styles.utilizationBar,
-                        { width: `${(item.occupiedSpaces / item.totalSpaces) * 100}%` }
+                        { width: `${(item.occupiedSpaces / (item.totalSpaces || 1)) * 100}%` }
                       ]}
                     />
                   </View>
+                  
+                  <TouchableOpacity 
+                    style={styles.manageSpacesButton}
+                    onPress={() => handleManageSpaces(item)}
+                  >
+                    <Text style={styles.manageSpacesText}>Manage Spaces</Text>
+                    <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                  </TouchableOpacity>
                 </View>
               )}
             />
@@ -442,7 +404,9 @@ export default function ParkingLotAdminPanel() {
               </View>
               
               <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Total Spaces</Text>
+                <Text style={styles.formLabel}>
+                  {editingLot ? 'Total Spaces' : 'Number of Spaces to Create'}
+                </Text>
                 <TextInput
                   style={styles.formInput}
                   value={formData.totalSpaces}
@@ -458,6 +422,11 @@ export default function ParkingLotAdminPanel() {
                   keyboardType="numeric"
                   placeholder="Enter total number of spaces"
                 />
+                {!editingLot && (
+                  <Text style={styles.formHelperText}>
+                    This will automatically create parking spaces numbered sequentially
+                  </Text>
+                )}
               </View>
               
               {editingLot && (
@@ -579,7 +548,7 @@ const styles = StyleSheet.create({
   },
   actionsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     marginBottom: spacing.md,
   },
   addButton: {
@@ -594,16 +563,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     marginLeft: spacing.xs,
-  },
-  testDataButton: {
-    backgroundColor: colors.success,
-    borderRadius: 8,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  testDataButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
   },
   emptyContainer: {
     alignItems: 'center',
@@ -647,6 +606,10 @@ const styles = StyleSheet.create({
   lotActions: {
     flexDirection: 'row',
   },
+  manageButton: {
+    padding: spacing.xs,
+    marginRight: spacing.xs,
+  },
   editButton: {
     padding: spacing.xs,
     marginRight: spacing.xs,
@@ -680,11 +643,27 @@ const styles = StyleSheet.create({
     height: 8,
     backgroundColor: '#F3F4F6',
     borderRadius: 4,
+    marginBottom: spacing.md,
   },
   utilizationBar: {
     height: '100%',
     backgroundColor: colors.primary,
     borderRadius: 4,
+  },
+  manageSpacesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.sm,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  manageSpacesText: {
+    color: colors.primary,
+    fontWeight: '500',
+    marginRight: spacing.xs,
   },
   modalOverlay: {
     flex: 1,
@@ -735,6 +714,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     fontSize: fontSizes.md,
     backgroundColor: '#F9FAFB',
+  },
+  formHelperText: {
+    fontSize: fontSizes.xs,
+    color: colors.textLight,
+    marginTop: spacing.xs,
   },
   modalFooter: {
     flexDirection: 'row',

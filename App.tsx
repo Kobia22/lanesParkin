@@ -1,23 +1,52 @@
-// App.tsx - Modified to get user role from Firestore
+// App.tsx - Modified with development mode test users
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, ActivityIndicator, StatusBar } from 'react-native';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from './src/firebase/firebaseConfig';
 import { colors } from './app/constants/theme';
 import { User, UserRole } from './src/firebase/types';
+import { addTestUsersDirectly } from './src/firebase/addTestUsers';
+import { getCurrentUser } from './src/firebase/auth';
 
 // Import Navigators
 import AuthNavigator from './app/screens/navigators/authNavigator';
 import UserNavigator from './app/screens/navigators/userNavigator';
 import AdminNavigator from './app/screens/navigators/adminNavigator';
+import WorkerNavigator from './app/screens/navigators/workerNavigator';
+
+// Check if we're in development mode
+const isDevelopment = process.env.NODE_ENV === 'development' || __DEV__;
 
 export default function App() {
   const [initializing, setInitializing] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Add test users when in development mode
+  useEffect(() => {
+    const setupTestUsers = async () => {
+      // Only run in development mode
+      if (!isDevelopment) return;
+      
+      try {
+        console.log('Setting up test users for development...');
+        
+        // Use the direct method for development
+        await addTestUsersDirectly();
+        
+        console.log('Test users setup completed successfully');
+      } catch (error) {
+        console.error('Error setting up test users:', error);
+      }
+    };
+
+    // Run the setup
+    setupTestUsers();
+  }, []);
+
+  // Auth state listener
   useEffect(() => {
     console.log("Setting up auth state listener");
     
@@ -27,20 +56,19 @@ export default function App() {
           console.log(`User authenticated: ${firebaseUser.uid}`);
           setLoading(true);
           
-          // Fetch user data from Firestore to get the role
-          const userRef = doc(db, "users", firebaseUser.uid);
-          const userDoc = await getDoc(userRef);
+          // Get current user with our utility function
+          const user = await getCurrentUser();
           
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            console.log(`Firestore user data loaded. Role: ${userData.role}`);
-            
-            setCurrentUser({
-              id: firebaseUser.uid,
-              ...userData as Omit<User, 'id'>
-            });
+          // In your useEffect in App.tsx, add more detailed logging:
+          if (user) {
+            console.log(`User data loaded. Role: ${user.role}, ID: ${user.id}, Email: ${user.email}`);
+            setCurrentUser(user);
+          }
+          if (user) {
+            console.log(`User data loaded. Role: ${user.role}`);
+            setCurrentUser(user);
           } else {
-            console.log("No Firestore document found for user. Creating a fallback user with email-based role.");
+            console.log("No user data found. Creating fallback user.");
             
             // Fallback: determine role from email domain
             const email = firebaseUser.email || '';
@@ -48,13 +76,14 @@ export default function App() {
             
             if (email.endsWith('@admin.lanesparking.com')) {
               role = 'admin';
+            } else if (email.endsWith('@worker.lanesparking.com')) {
+              role = 'worker';
             } else if (email.endsWith('@students.jkuat.ac.ke')) {
               role = 'student';
             }
             
-            // Create a basic user with email-determined role
-            const basicUser: User = {
-              id: firebaseUser.uid,
+            // Create a basic user document in Firestore
+            const basicUser: Omit<User, 'id'> = {
               email: email,
               role: role,
               displayName: firebaseUser.displayName || email.split('@')[0] || '',
@@ -62,7 +91,13 @@ export default function App() {
               lastLoginAt: new Date().toISOString()
             };
             
-            setCurrentUser(basicUser);
+            // Save the user to Firestore
+            await setDoc(doc(db, 'users', firebaseUser.uid), basicUser);
+            
+            setCurrentUser({
+              id: firebaseUser.uid,
+              ...basicUser
+            });
           }
         } else {
           console.log("No user is signed in");
@@ -80,6 +115,7 @@ export default function App() {
     return unsubscribe;
   }, []);
 
+  // Loading state
   if (initializing || loading) {
     return (
       <View style={{ 
@@ -100,6 +136,7 @@ export default function App() {
     );
   }
 
+  // Main app with navigator based on user role
   return (
     <>
       <StatusBar 
@@ -111,6 +148,8 @@ export default function App() {
           <AuthNavigator />
         ) : currentUser.role === 'admin' ? (
           <AdminNavigator />
+        ) : currentUser.role === 'worker' ? (
+          <WorkerNavigator />
         ) : (
           <UserNavigator />
         )}

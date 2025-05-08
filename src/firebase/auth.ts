@@ -1,298 +1,230 @@
-// src/firebase/auth.ts
+// src/firebase/authService.ts
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   signOut as firebaseSignOut,
   UserCredential
 } from 'firebase/auth';
-import { 
-  doc, 
-  setDoc, 
-  getDoc, 
-  updateDoc, 
-  serverTimestamp 
-} from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebaseConfig';
 import { User, UserRole } from './types';
-import { 
-  EmailAuthProvider, 
-  reauthenticateWithCredential, 
-  updatePassword 
-} from 'firebase/auth';
 
-// Regex pattern for staff ID validation
-export const STAFF_ID_REGEX = /^[A-Z]{3}\d{2}-\d{3}$/;
-
-// Helper function to determine role based on email
-export function determineUserRole(email: string): UserRole {
-  const STUDENT_EMAIL_REGEX = /@students\.jkuat\.ac\.ke$/;
-  const ADMIN_EMAIL_REGEX = /@admin\.lanesparking\.com$/;
-  
-  if (ADMIN_EMAIL_REGEX.test(email)) {
-    return 'admin';
-  } else if (STUDENT_EMAIL_REGEX.test(email)) {
-    return 'student';
-  } else {
-    return 'guest';
-  }
-}
-
-// Convert staff ID to admin email
-export function staffIdToAdminEmail(staffId: string): string {
-  return `${staffId}@admin.lanesparking.com`;
-}
-
-// Validate staff ID format
-export function isValidStaffId(staffId: string): boolean {
-  return STAFF_ID_REGEX.test(staffId);
-}
-
-// Register a new user
-// Modified registerUser function with better logging
-export async function registerUser(email: string, password: string, username?: string): Promise<User> {
+/**
+ * Sign up a new user with email and password
+ */
+export async function signUp(email: string, password: string, displayName: string, role: UserRole = 'guest'): Promise<User> {
   try {
-    console.log(`Attempting to register user with email: ${email} and username: ${username || 'not provided'}`);
-    
-    // First, create the auth user
+    // Create user in Firebase Authentication
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-    console.log(`Firebase Auth user created with UID: ${user.uid}`);
+    const uid = userCredential.user.uid;
     
-    // Determine user role based on email domain
-    const role = determineUserRole(email);
-    console.log(`Determined role: ${role} based on email domain`);
-    
-    // Set displayName from provided username or generate from email
-    const displayName = username || email.split('@')[0];
+    // Determine role based on email domain if not specified
+    if (!role) {
+      if (email.endsWith('@admin.lanesparking.com')) {
+        role = 'admin';
+      } else if (email.endsWith('@worker.lanesparking.com')) {
+        role = 'worker';
+      } else if (email.endsWith('@students.jkuat.ac.ke')) {
+        role = 'student';
+      } else {
+        role = 'guest';
+      }
+    }
     
     // Create user document in Firestore
     const userData: Omit<User, 'id'> = {
-      email: email,
-      role: role,
-      displayName: displayName,
+      email,
+      displayName,
+      role,
       createdAt: new Date().toISOString(),
-      lastLoginAt: new Date().toISOString()
+      updatedAt: new Date().toISOString()
     };
     
-    console.log(`Attempting to create Firestore document for user: ${JSON.stringify(userData)}`);
+    await setDoc(doc(db, 'users', uid), userData);
     
-    await setDoc(doc(db, "users", user.uid), userData);
-    console.log(`Firestore document created successfully for UID: ${user.uid}`);
-    
-    // Return the user with ID
+    // Return the complete user object
     return {
-      id: user.uid,
+      id: uid,
       ...userData
     };
   } catch (error) {
-    console.error("Error creating user:", error);
-    throw error;
-  }
-}
-// Register a new admin user with staff ID
-export async function registerAdminUser(staffId: string, password: string): Promise<User> {
-  if (!isValidStaffId(staffId)) {
-    throw new Error("Invalid staff ID format");
-  }
-  
-  const adminEmail = staffIdToAdminEmail(staffId);
-  
-  try {
-    // Create the auth user
-    const userCredential = await createUserWithEmailAndPassword(auth, adminEmail, password);
-    const user = userCredential.user;
-    
-    // Create admin user document in Firestore
-    const userData: Omit<User, 'id'> = {
-      email: adminEmail,
-      role: 'admin',
-      displayName: staffId, // Use staffId as displayName by default
-      staffId: staffId,
-      createdAt: new Date().toISOString(),
-      lastLoginAt: new Date().toISOString()
-    };
-    
-    await setDoc(doc(db, "users", user.uid), userData);
-    
-    // Return the user with ID
-    return {
-      id: user.uid,
-      ...userData
-    };
-  } catch (error) {
-    console.error("Error creating admin user:", error);
+    console.error('Error signing up user:', error);
     throw error;
   }
 }
 
-// Sign in an existing user
-export async function signInUser(email: string, password: string): Promise<User> {
+/**
+ * Sign in an existing user
+ */
+export async function signIn(email: string, password: string): Promise<User> {
   try {
+    // Sign in with Firebase Authentication
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
+    const uid = userCredential.user.uid;
+    
+    // Get user document from Firestore
+    const userDoc = await getDoc(doc(db, 'users', uid));
+    
+    if (!userDoc.exists()) {
+      throw new Error('User record not found in database');
+    }
     
     // Update last login timestamp
-    const userRef = doc(db, "users", user.uid);
-    await updateDoc(userRef, {
+    await updateDoc(doc(db, 'users', uid), {
       lastLoginAt: new Date().toISOString()
     });
     
-    // Get the user data
-    const userDoc = await getDoc(userRef);
-    
-    if (!userDoc.exists()) {
-      throw new Error("User not found in database");
-    }
-    
+    // Return the user data
     return {
-      id: user.uid,
+      id: uid,
       ...userDoc.data() as Omit<User, 'id'>
     };
   } catch (error) {
-    console.error("Error signing in:", error);
+    console.error('Error signing in user:', error);
     throw error;
   }
 }
 
-// Sign in admin using staff ID
-export async function signInAdmin(staffId: string, password: string): Promise<User> {
-  if (!isValidStaffId(staffId)) {
-    throw new Error("Invalid staff ID format");
-  }
-  
-  const adminEmail = staffIdToAdminEmail(staffId);
-  
-  try {
-    const userCredential = await signInWithEmailAndPassword(auth, adminEmail, password);
-    const user = userCredential.user;
-    
-    // Update last login timestamp
-    const userRef = doc(db, "users", user.uid);
-    await updateDoc(userRef, {
-      lastLoginAt: new Date().toISOString()
-    });
-    
-    // Get the user data and verify role
-    const userDoc = await getDoc(userRef);
-    
-    if (!userDoc.exists()) {
-      throw new Error("User not found in database");
-    }
-    
-    const userData = userDoc.data() as Omit<User, 'id'>;
-    
-    if (userData.role !== 'admin') {
-      // User exists but is not an admin, sign out and throw error
-      await firebaseSignOut(auth);
-      throw new Error("User does not have admin privileges");
-    }
-    
-    return {
-      id: user.uid,
-      ...userData
-    };
-  } catch (error) {
-    console.error("Error signing in admin:", error);
-    throw error;
-  }
-}
-
-// Get current user details
-// Enhanced getCurrentUser function
-export async function getCurrentUser(): Promise<User | null> {
-  try {
-    const firebaseUser = auth.currentUser;
-    
-    if (!firebaseUser) {
-      console.log("No user is currently signed in");
-      return null;
-    }
-    
-    console.log(`Fetching user data for ID: ${firebaseUser.uid}`);
-    
-    const userRef = doc(db, "users", firebaseUser.uid);
-    const userDoc = await getDoc(userRef);
-    
-    if (!userDoc.exists()) {
-      console.log(`User document not found for ID: ${firebaseUser.uid}, creating one`);
-      
-      // Create a basic user document if it doesn't exist
-      const email = firebaseUser.email || '';
-      const role = determineUserRole(email);
-      const displayName = firebaseUser.displayName || email.split('@')[0] || 'User';
-      
-      const userData: Omit<User, 'id'> = {
-        email: email,
-        role: role,
-        displayName: displayName,
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString()
-      };
-      
-      // Create the user document
-      await setDoc(userRef, userData);
-      console.log(`Created new user document for ${firebaseUser.uid}`);
-      
-      return {
-        id: firebaseUser.uid,
-        ...userData
-      };
-    }
-    
-    console.log("User document found in Firestore:", userDoc.data());
-    
-    return {
-      id: firebaseUser.uid,
-      ...userDoc.data() as Omit<User, 'id'>
-    };
-  } catch (error) {
-    console.error("Error getting current user:", error);
-    return null;
-  }
-}
-
-// Sign out the current user
+/**
+ * Sign out the current user
+ */
 export async function signOut(): Promise<void> {
   try {
     await firebaseSignOut(auth);
   } catch (error) {
-    console.error("Error signing out:", error);
+    console.error('Error signing out:', error);
     throw error;
   }
 }
 
-// Check if current user is admin
-export async function isUserAdmin(): Promise<boolean> {
-  const user = await getCurrentUser();
-  return user?.role === 'admin';
-}
-
-export async function changeUserPassword(
-  currentPassword: string, 
-  newPassword: string
-): Promise<void> {
+/**
+ * Get the current authenticated user from Firestore
+ * Modified to better handle role detection from email domains
+ */
+export async function getCurrentUser(): Promise<User | null> {
   try {
-    const user = auth.currentUser;
+    const currentUser = auth.currentUser;
     
-    if (!user || !user.email) {
-      throw new Error('User not authenticated');
+    if (!currentUser) {
+      return null;
     }
     
-    // Re-authenticate user before changing password
-    const credential = EmailAuthProvider.credential(
-      user.email,
-      currentPassword
-    );
+    // Log more info for debugging
+    console.log(`Fetching user data for: ${currentUser.uid} (${currentUser.email})`);
     
-    // This verifies the current password is correct
-    await reauthenticateWithCredential(user, credential);
+    const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
     
-    // If re-authentication successful, update password
-    await updatePassword(user, newPassword);
+    if (!userDoc.exists()) {
+      console.log(`No user document found for ${currentUser.uid}, creating one`);
+      
+      // Determine role based on email domain
+      const email = currentUser.email || '';
+      let role: UserRole = 'guest';
+      
+      if (email.endsWith('@admin.lanesparking.com')) {
+        role = 'admin';
+      } else if (email.endsWith('@worker.lanesparking.com')) {
+        role = 'worker';
+      } else if (email.endsWith('@students.jkuat.ac.ke')) {
+        role = 'student';
+      }
+      
+      console.log(`Determined role from email: ${role}`);
+      
+      // Create a basic user record if one doesn't exist
+      const basicUserData: Omit<User, 'id'> = {
+        email: currentUser.email || '',
+        displayName: currentUser.displayName || email.split('@')[0] || '',
+        role: role,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString()
+      };
+      
+      await setDoc(doc(db, 'users', currentUser.uid), basicUserData);
+      console.log(`Created new user document with role: ${role}`);
+      
+      return {
+        id: currentUser.uid,
+        ...basicUserData
+      };
+    }
     
-    console.log('Password updated successfully');
+    // Get user data and ensure role is correct based on email
+    const userData = userDoc.data() as Omit<User, 'id'>;
+    const email = userData.email || '';
+    
+    // Check if role is consistent with email domain
+    if (email.endsWith('@admin.lanesparking.com') && userData.role !== 'admin') {
+      console.log(`Fixing role for admin email: ${email}`);
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        role: 'admin',
+        updatedAt: new Date().toISOString()
+      });
+      userData.role = 'admin';
+    } else if (email.endsWith('@worker.lanesparking.com') && userData.role !== 'worker') {
+      console.log(`Fixing role for worker email: ${email}`);
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        role: 'worker',
+        updatedAt: new Date().toISOString()
+      });
+      userData.role = 'worker';
+    } else if (email.endsWith('@students.jkuat.ac.ke') && userData.role !== 'student') {
+      console.log(`Fixing role for student email: ${email}`);
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        role: 'student',
+        updatedAt: new Date().toISOString()
+      });
+      userData.role = 'student';
+    }
+    
+    // Update last login timestamp
+    await updateDoc(doc(db, 'users', currentUser.uid), {
+      lastLoginAt: new Date().toISOString()
+    });
+    
+    console.log(`Returning user with role: ${userData.role}`);
+    
+    return {
+      id: currentUser.uid,
+      ...userData
+    };
   } catch (error) {
-    console.error('Error changing password:', error);
+    console.error('Error getting current user:', error);
+    return null;
+  }
+}
+
+/**
+ * Change a user's role (admin only)
+ */
+export async function changeUserRole(userId: string, newRole: UserRole): Promise<void> {
+  try {
+    // Get current user to verify admin status
+    const currentUser = await getCurrentUser();
+    
+    if (!currentUser || currentUser.role !== 'admin') {
+      throw new Error('Only admins can change user roles');
+    }
+    
+    await updateDoc(doc(db, 'users', userId), {
+      role: newRole,
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error changing user role:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create a test/development admin user
+ */
+export async function createTestAdmin(email: string, password: string): Promise<User> {
+  try {
+    return await signUp(email, password, 'Test Admin', 'admin');
+  } catch (error) {
+    console.error('Error creating test admin:', error);
     throw error;
   }
 }

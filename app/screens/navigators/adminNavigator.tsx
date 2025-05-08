@@ -8,7 +8,7 @@ import { colors } from '../../constants/theme';
 // Admin Screens
 import AdminDashboardScreen from '../admin/dashboard';
 import AnalyticsScreen from '../admin/analytics';
-import ParkingLotAdminPanel from '../admin/parkingLot';
+import ParkingLotAdminPanel from '../admin/parkingLotAdminPanel';
 import ParkingSpaceAdminPanel from '../admin/parkingSpace';
 import AdminProfileScreen from '../admin/profile';
 
