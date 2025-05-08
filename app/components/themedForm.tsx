@@ -1,20 +1,28 @@
-// app/components/ThemedForm.js
+// app/components/themedForm.tsx
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { 
+  View, 
+  Text, 
+  TextInput, 
+  StyleSheet, 
+  TouchableOpacity,
+  ActivityIndicator 
+} from 'react-native';
 import { colors, spacing, fontSizes } from '../constants/theme';
 
 interface ThemedFormProps {
-  title?: string;
+  title: string;
   email: string;
   password: string;
   onEmailChange: (text: string) => void;
   onPasswordChange: (text: string) => void;
   onSubmit: () => void;
   loading: boolean;
-  submitLabel?: string;
+  submitLabel: string;
+  error?: string;
 }
 
-export default function ThemedForm({
+const ThemedForm: React.FC<ThemedFormProps> = ({
   title,
   email,
   password,
@@ -22,11 +30,16 @@ export default function ThemedForm({
   onPasswordChange,
   onSubmit,
   loading,
-  submitLabel = 'Submit',
-}: ThemedFormProps) {
+  submitLabel,
+  error
+}) => {
   return (
-    <View style={styles.container}>
-      {title && <Text style={styles.formTitle}>{title}</Text>}
+    <View style={styles.formContainer}>
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
       
       <View style={styles.inputContainer}>
         <Text style={styles.label}>Email</Text>
@@ -34,84 +47,98 @@ export default function ThemedForm({
           style={styles.input}
           value={email}
           onChangeText={onEmailChange}
-          placeholder="your.name@example.com"
-          autoCapitalize="none"
+          placeholder="Email address"
           keyboardType="email-address"
-          autoComplete="email"
+          autoCapitalize="none"
+          returnKeyType="next"
         />
       </View>
-
+      
       <View style={styles.inputContainer}>
         <Text style={styles.label}>Password</Text>
         <TextInput
           style={styles.input}
           value={password}
           onChangeText={onPasswordChange}
-          placeholder="Your password"
+          placeholder="Password"
           secureTextEntry
-          autoComplete="password"
+          returnKeyType="done"
         />
       </View>
-
-      <TouchableOpacity 
-        style={[styles.button, loading && styles.buttonDisabled]} 
+      
+      <TouchableOpacity
+        style={styles.submitButton}
         onPress={onSubmit}
         disabled={loading}
       >
         {loading ? (
-          <ActivityIndicator color="#ffffff" size="small" />
+          <ActivityIndicator color="#FFFFFF" />
         ) : (
-          <Text style={styles.buttonText}>{submitLabel}</Text>
+          <Text style={styles.submitButtonText}>{submitLabel}</Text>
         )}
       </TouchableOpacity>
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
-  container: {
+  formContainer: {
     width: '100%',
-    maxWidth: 400,
     padding: spacing.md,
+    marginTop: spacing.md,
   },
-  formTitle: {
-    fontSize: fontSizes.xl,
-    fontWeight: '600',
-    marginBottom: spacing.lg,
-    textAlign: 'center',
-    color: colors.text,
+  errorContainer: {
+    backgroundColor: '#FFEBEE',
+    borderRadius: 8,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.error,
+  },
+  errorText: {
+    color: colors.error,
+    fontSize: fontSizes.sm,
   },
   inputContainer: {
     marginBottom: spacing.md,
   },
   label: {
     fontSize: fontSizes.sm,
-    marginBottom: spacing.xs,
-    color: colors.textLight,
     fontWeight: '500',
+    marginBottom: spacing.xs,
+    color: colors.text,
   },
   input: {
-    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     borderRadius: 8,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     fontSize: fontSizes.md,
-    borderWidth: 1,
-    borderColor: '#e5e5e5',
+    backgroundColor: colors.cardBackground,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  button: {
+  submitButton: {
     backgroundColor: colors.primary,
     borderRadius: 8,
     paddingVertical: spacing.md,
     alignItems: 'center',
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  buttonDisabled: {
-    backgroundColor: colors.primary + '80', // 50% opacity
-  },
-  buttonText: {
-    color: '#ffffff',
+  submitButtonText: {
+    color: '#FFFFFF',
     fontSize: fontSizes.md,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
 });
+
+export default ThemedForm;
