@@ -12,11 +12,12 @@ import {
 } from 'react-native';
 import { fetchParkingLots } from '../../../src/firebase/database';
 import { getCurrentUser } from '../../../src/firebase/auth';
-import { colors, spacing, fontSizes } from '../../constants/theme';
+import { spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { User } from '../../../src/firebase/types';
 import type { ParkingLot } from '../../../src/firebase/types';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useTheme } from '../../context/themeContext';
 
 type UserStackParamList = {
   Home: undefined;
@@ -30,6 +31,7 @@ type HomeScreenProps = {
 };
 
 export default function HomeScreen({ navigation }: HomeScreenProps) {
+  const { colors, isDarkMode } = useTheme();
   const [user, setUser] = useState<User | null>(null);
   const [parkingLots, setParkingLots] = useState<ParkingLot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,23 +74,25 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
   if (loading && !refreshing) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading parking lots...</Text>
+        <Text style={[styles.loadingText, { color: colors.textLight }]}>Loading parking lots...</Text>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <View>
           <Text style={styles.welcomeText}>
             Welcome, {user?.displayName || user?.email?.split('@')[0] || 'User'}
           </Text>
           <View style={[
             styles.roleBadge,
-            user?.role === 'student' ? styles.studentBadge : styles.guestBadge
+            user?.role === 'student' ? 
+              (isDarkMode ? { backgroundColor: 'rgba(8, 145, 178, 0.5)' } : styles.studentBadge) : 
+              (isDarkMode ? { backgroundColor: 'rgba(139, 92, 246, 0.5)' } : styles.guestBadge)
           ]}>
             <Text style={styles.roleText}>
               {user?.role === 'student' ? 'Student' : 'Guest'}
@@ -98,13 +102,15 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.title}>Available Parking Lots</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Available Parking Lots</Text>
         
         {error ? (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
+          <View style={[styles.errorContainer, { 
+            backgroundColor: isDarkMode ? 'rgba(220, 38, 38, 0.1)' : '#FEF2F2'
+          }]}>
+            <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
             <TouchableOpacity 
-              style={styles.retryButton} 
+              style={[styles.retryButton, { backgroundColor: colors.primary }]} 
               onPress={loadUserAndLots}
             >
               <Text style={styles.retryButtonText}>Retry</Text>
@@ -116,27 +122,27 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity 
-                style={styles.lotCard}
+                style={[styles.lotCard, { backgroundColor: colors.cardBackground }]}
                 onPress={() => handleLotPress(item.id)}
               >
                 <View style={styles.lotDetails}>
-                  <Text style={styles.lotName}>{item.name}</Text>
-                  <Text style={styles.lotLocation}>{item.location}</Text>
+                  <Text style={[styles.lotName, { color: colors.text }]}>{item.name}</Text>
+                  <Text style={[styles.lotLocation, { color: colors.textLight }]}>{item.location}</Text>
                   
                   <View style={styles.lotStats}>
                     <View style={styles.statItem}>
-                      <Text style={styles.statValue}>{item.availableSpaces}</Text>
-                      <Text style={styles.statLabel}>Available</Text>
+                      <Text style={[styles.statValue, { color: colors.primary }]}>{item.availableSpaces}</Text>
+                      <Text style={[styles.statLabel, { color: colors.textLight }]}>Available</Text>
                     </View>
                     
                     <View style={styles.statItem}>
-                      <Text style={styles.statValue}>{item.totalSpaces}</Text>
-                      <Text style={styles.statLabel}>Total</Text>
+                      <Text style={[styles.statValue, { color: colors.primary }]}>{item.totalSpaces}</Text>
+                      <Text style={[styles.statLabel, { color: colors.textLight }]}>Total</Text>
                     </View>
                     
                     <View style={styles.statItem}>
-                      <Text style={styles.statValue}>{item.occupiedSpaces}</Text>
-                      <Text style={styles.statLabel}>Occupied</Text>
+                      <Text style={[styles.statValue, { color: colors.primary }]}>{item.occupiedSpaces}</Text>
+                      <Text style={[styles.statLabel, { color: colors.textLight }]}>Occupied</Text>
                     </View>
                   </View>
                 </View>
@@ -151,11 +157,12 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
                 refreshing={refreshing}
                 onRefresh={onRefresh}
                 colors={[colors.primary]}
+                tintColor={colors.primary}
               />
             }
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No parking lots available</Text>
+                <Text style={[styles.emptyText, { color: colors.textLight }]}>No parking lots available</Text>
               </View>
             }
           />
@@ -168,21 +175,17 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.background,
   },
   loadingText: {
     marginTop: spacing.md,
     fontSize: fontSizes.md,
-    color: colors.textLight,
   },
   header: {
-    backgroundColor: colors.primary,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: spacing.lg,
@@ -220,11 +223,9 @@ const styles = StyleSheet.create({
   title: {
     fontSize: fontSizes.xl,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.md,
   },
   lotCard: {
-    backgroundColor: colors.cardBackground,
     borderRadius: 10,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -242,12 +243,10 @@ const styles = StyleSheet.create({
   lotName: {
     fontSize: fontSizes.lg,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.xs,
   },
   lotLocation: {
     fontSize: fontSizes.md,
-    color: colors.textLight,
     marginBottom: spacing.sm,
   },
   lotStats: {
@@ -260,29 +259,24 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.primary,
   },
   statLabel: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
   },
   bookButton: {
     padding: spacing.sm,
   },
   errorContainer: {
     padding: spacing.lg,
-    backgroundColor: '#FEF2F2',
     borderRadius: 10,
     marginBottom: spacing.md,
     alignItems: 'center',
   },
   errorText: {
-    color: '#DC2626',
     marginBottom: spacing.md,
     textAlign: 'center',
   },
   retryButton: {
-    backgroundColor: colors.primary,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: 5,
@@ -296,7 +290,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
-    color: colors.textLight,
     fontSize: fontSizes.md,
     textAlign: 'center',
   },

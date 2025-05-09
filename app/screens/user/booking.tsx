@@ -20,11 +20,12 @@ import {
   fetchParkingLots,
 } from '../../../src/firebase/database';
 import { getCurrentUser } from '../../../src/firebase/auth';
-import { colors, spacing, fontSizes } from '../../constants/theme';
+import { spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { RouteProp } from '@react-navigation/native';
 import type { ParkingLot, ParkingSpace, User } from '../../../src/firebase/types';
+import { useTheme } from '../../context/themeContext';
 
 type UserStackParamList = {
   Home: undefined;
@@ -39,6 +40,7 @@ type BookingScreenProps = {
 };
 
 export default function BookingScreen({ navigation, route }: BookingScreenProps) {
+  const { colors, isDarkMode } = useTheme();
   const [selectedLot, setSelectedLot] = useState<ParkingLot | null>(null);
   const [parkingLots, setParkingLots] = useState<ParkingLot[]>([]);
   const [parkingSpaces, setParkingSpaces] = useState<ParkingSpace[]>([]);
@@ -212,21 +214,21 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
 
   if (loading && !refreshing) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading parking information...</Text>
+        <Text style={[styles.loadingText, { color: colors.textLight }]}>Loading parking information...</Text>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView 
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        <View style={styles.header}>
+        <View style={[styles.header, { backgroundColor: colors.primary }]}>
           <Text style={styles.title}>Book a Parking Space</Text>
           {selectedLot && (
             <View style={styles.lotInfo}>
@@ -242,14 +244,16 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
         </View>
 
         {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
+          <View style={[styles.errorContainer, { 
+            backgroundColor: isDarkMode ? 'rgba(220, 38, 38, 0.1)' : '#FEE2E2'
+          }]}>
+            <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
           </View>
         )}
 
         {!selectedLot ? (
           <View style={styles.lotSelectionContainer}>
-            <Text style={styles.sectionTitle}>Select a parking lot:</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Select a parking lot:</Text>
             
             <FlatList
               data={parkingLots}
@@ -258,17 +262,19 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
               showsHorizontalScrollIndicator={false}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.lotCard}
+                  style={[styles.lotCard, { backgroundColor: colors.cardBackground }]}
                   onPress={() => handleLotSelect(item)}
                   disabled={item.availableSpaces === 0}
                 >
-                  <Text style={styles.lotCardName}>{item.name}</Text>
-                  <Text style={styles.lotCardLocation}>{item.location}</Text>
+                  <Text style={[styles.lotCardName, { color: colors.text }]}>{item.name}</Text>
+                  <Text style={[styles.lotCardLocation, { color: colors.textLight }]}>{item.location}</Text>
                   <View style={[
                     styles.availabilityIndicator,
-                    item.availableSpaces === 0 ? styles.fullLot : styles.availableLot
+                    item.availableSpaces === 0 ? 
+                      (isDarkMode ? { backgroundColor: 'rgba(220, 38, 38, 0.2)' } : styles.fullLot) : 
+                      (isDarkMode ? { backgroundColor: 'rgba(34, 197, 94, 0.2)' } : styles.availableLot)
                   ]}>
-                    <Text style={styles.availabilityText}>
+                    <Text style={[styles.availabilityText, { color: colors.text }]}>
                       {item.availableSpaces === 0 ? 'Full' : `${item.availableSpaces} Available`}
                     </Text>
                   </View>
@@ -278,7 +284,7 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
                   <Ionicons name="car-outline" size={48} color={colors.textLight} />
-                  <Text style={styles.emptyText}>No parking lots available</Text>
+                  <Text style={[styles.emptyText, { color: colors.textLight }]}>No parking lots available</Text>
                 </View>
               }
             />
@@ -286,7 +292,7 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
         ) : (
           <View style={styles.spacesContainer}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Select a parking space:</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Select a parking space:</Text>
               <TouchableOpacity 
                 style={styles.changeLotButton}
                 onPress={() => {
@@ -294,20 +300,30 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
                   setSelectedSpace(null);
                 }}
               >
-                <Text style={styles.changeLotText}>Change Lot</Text>
+                <Text style={[styles.changeLotText, { color: colors.primary }]}>Change Lot</Text>
               </TouchableOpacity>
             </View>
             
             {parkingSpaces.length > 0 ? (
-              <View style={styles.spacesLayout}>
+              <View style={[styles.spacesLayout, { backgroundColor: colors.cardBackground }]}>
                 <View style={styles.spaceGrid}>
                   {parkingSpaces.map((space) => (
                     <TouchableOpacity
                       key={space.id}
                       style={[
                         styles.spaceItem,
-                        !isSpaceBookable(space) && styles.spaceOccupied,
-                        selectedSpace?.id === space.id && styles.spaceSelected,
+                        { 
+                          backgroundColor: colors.cardBackground,
+                          borderColor: colors.borderColor 
+                        },
+                        !isSpaceBookable(space) && [
+                          styles.spaceOccupied, 
+                          { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#F3F4F6' }
+                        ],
+                        selectedSpace?.id === space.id && [
+                          styles.spaceSelected,
+                          { borderColor: colors.primary }
+                        ],
                       ]}
                       onPress={() => {
                         if (isSpaceBookable(space)) {
@@ -318,16 +334,23 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
                     >
                       <Text style={[
                         styles.spaceNumber,
-                        !isSpaceBookable(space) && styles.spaceNumberOccupied,
-                        selectedSpace?.id === space.id && styles.spaceNumberSelected,
+                        { color: colors.text },
+                        !isSpaceBookable(space) && [
+                          styles.spaceNumberOccupied,
+                          { color: colors.textLight }
+                        ],
+                        selectedSpace?.id === space.id && [
+                          styles.spaceNumberSelected,
+                          { color: colors.primary }
+                        ],
                       ]}>
                         {space.number}
                       </Text>
                       <View style={[
                         styles.statusIndicator,
-                        space.status === 'vacant' && styles.vacantIndicator,
-                        space.status === 'occupied' && styles.occupiedIndicator,
-                        space.status === 'booked' && styles.bookedIndicator,
+                        space.status === 'vacant' && { backgroundColor: colors.success },
+                        space.status === 'occupied' && { backgroundColor: colors.error },
+                        space.status === 'booked' && { backgroundColor: colors.accent },
                       ]} />
                     </TouchableOpacity>
                   ))}
@@ -335,63 +358,70 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
                 
                 <View style={styles.spaceLegend}>
                   <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, styles.vacantIndicator]} />
-                    <Text style={styles.legendText}>Available</Text>
+                    <View style={[styles.legendDot, { backgroundColor: colors.success }]} />
+                    <Text style={[styles.legendText, { color: colors.textLight }]}>Available</Text>
                   </View>
                   <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, styles.occupiedIndicator]} />
-                    <Text style={styles.legendText}>Occupied</Text>
+                    <View style={[styles.legendDot, { backgroundColor: colors.error }]} />
+                    <Text style={[styles.legendText, { color: colors.textLight }]}>Occupied</Text>
                   </View>
                   <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, styles.bookedIndicator]} />
-                    <Text style={styles.legendText}>Booked</Text>
+                    <View style={[styles.legendDot, { backgroundColor: colors.accent }]} />
+                    <Text style={[styles.legendText, { color: colors.textLight }]}>Booked</Text>
                   </View>
                 </View>
               </View>
             ) : (
-              <View style={styles.emptySpaces}>
-                <Text style={styles.emptyText}>
+              <View style={[styles.emptySpaces, { backgroundColor: colors.cardBackground }]}>
+                <Text style={[styles.emptyText, { color: colors.textLight }]}>
                   No parking spaces available for this lot.
                 </Text>
               </View>
             )}
 
             {selectedSpace && (
-              <View style={styles.bookingForm}>
-                <View style={styles.selectedSpaceInfo}>
-                  <Text style={styles.formLabel}>
-                    Selected Space: <Text style={styles.spaceHighlight}>#{selectedSpace.number}</Text>
+              <View style={[styles.bookingForm, { backgroundColor: colors.cardBackground }]}>
+                <View style={[styles.selectedSpaceInfo, { borderBottomColor: colors.borderColor }]}>
+                  <Text style={[styles.formLabel, { color: colors.text }]}>
+                    Selected Space: <Text style={[styles.spaceHighlight, { color: colors.primary }]}>#{selectedSpace.number}</Text>
                   </Text>
                 </View>
                 
                 <View style={styles.formField}>
-                  <Text style={styles.formLabel}>Vehicle Registration:</Text>
+                  <Text style={[styles.formLabel, { color: colors.text }]}>Vehicle Registration:</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, { 
+                      borderColor: colors.borderColor, 
+                      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
+                      color: colors.text
+                    }]}
                     value={vehicleReg}
                     onChangeText={setVehicleReg}
                     placeholder="e.g. KBZ 123Y"
+                    placeholderTextColor={colors.textLight}
                     autoCapitalize="characters"
                   />
                 </View>
                 
                 <View style={styles.formField}>
-                  <Text style={styles.formLabel}>Pricing Information:</Text>
-                  <View style={styles.pricingInfo}>
+                  <Text style={[styles.formLabel, { color: colors.text }]}>Pricing Information:</Text>
+                  <View style={[styles.pricingInfo, { 
+                    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#F9FAFB'
+                  }]}>
                     {currentUser?.role === 'student' ? (
                       <View style={styles.pricingItem}>
-                        <Text style={styles.pricingLabel}>Student Rate:</Text>
-                        <Text style={styles.pricingValue}>KSH 200 (fixed daily rate)</Text>
+                        <Text style={[styles.pricingLabel, { color: colors.textLight }]}>Student Rate:</Text>
+                        <Text style={[styles.pricingValue, { color: colors.text }]}>KSH 200 (fixed daily rate)</Text>
                       </View>
                     ) : (
                       <>
                         <View style={styles.pricingItem}>
-                          <Text style={styles.pricingLabel}>Guest Rate:</Text>
-                          <Text style={styles.pricingValue}>KSH 50 per hour</Text>
+                          <Text style={[styles.pricingLabel, { color: colors.textLight }]}>Guest Rate:</Text>
+                          <Text style={[styles.pricingValue, { color: colors.text }]}>KSH 50 per hour</Text>
                         </View>
                         <View style={styles.pricingItem}>
-                          <Text style={styles.pricingLabel}>First 30 minutes:</Text>
-                          <Text style={styles.pricingValue}>Free</Text>
+                          <Text style={[styles.pricingLabel, { color: colors.textLight }]}>First 30 minutes:</Text>
+                          <Text style={[styles.pricingValue, { color: colors.text }]}>Free</Text>
                         </View>
                       </>
                     )}
@@ -399,13 +429,13 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
                 </View>
                 
                 <View style={styles.formField}>
-                  <Text style={styles.formHelperText}>
+                  <Text style={[styles.formHelperText, { color: colors.accent }]}>
                     * Booking will expire in 5 minutes if you don't arrive at the space
                   </Text>
                 </View>
                 
                 <TouchableOpacity
-                  style={styles.confirmButton}
+                  style={[styles.confirmButton, { backgroundColor: colors.primary }]}
                   onPress={handleCreateBooking}
                   disabled={bookingLoading}
                 >
@@ -427,11 +457,9 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   header: {
     padding: spacing.md,
-    backgroundColor: colors.primary,
     paddingTop: 60,
   },
   title: {
@@ -469,21 +497,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.background,
   },
   loadingText: {
     marginTop: spacing.md,
     fontSize: fontSizes.md,
-    color: colors.textLight,
   },
   errorContainer: {
     margin: spacing.md,
     padding: spacing.md,
-    backgroundColor: '#FEF2F2',
     borderRadius: 10,
   },
   errorText: {
-    color: '#DC2626',
     textAlign: 'center',
   },
   lotSelectionContainer: {
@@ -492,14 +516,12 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: fontSizes.lg,
     fontWeight: '600',
-    color: colors.text,
     marginBottom: spacing.md,
   },
   lotsList: {
     paddingHorizontal: spacing.xs,
   },
   lotCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: spacing.md,
     marginRight: spacing.md,
@@ -513,11 +535,9 @@ const styles = StyleSheet.create({
   lotCardName: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.text,
   },
   lotCardLocation: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
     marginBottom: spacing.md,
   },
   availabilityIndicator: {
@@ -535,7 +555,6 @@ const styles = StyleSheet.create({
   availabilityText: {
     fontSize: fontSizes.sm,
     fontWeight: '500',
-    color: colors.text,
   },
   spacesContainer: {
     padding: spacing.md,
@@ -550,12 +569,10 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
   },
   changeLotText: {
-    color: colors.primary,
     fontWeight: '500',
     textDecorationLine: 'underline',
   },
   spacesLayout: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: spacing.md,
     shadowColor: '#000',
@@ -571,7 +588,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   spaceItem: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 5,
     margin: spacing.xs,
     width: 65,
@@ -579,26 +595,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     position: 'relative',
   },
   spaceOccupied: {
-    backgroundColor: '#F3F4F6',
   },
   spaceSelected: {
-    borderColor: colors.primary,
     borderWidth: 2,
   },
   spaceNumber: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.text,
   },
   spaceNumberOccupied: {
-    color: colors.textLight,
   },
   spaceNumberSelected: {
-    color: colors.primary,
   },
   statusIndicator: {
     position: 'absolute',
@@ -607,15 +617,6 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-  },
-  vacantIndicator: {
-    backgroundColor: colors.success,
-  },
-  occupiedIndicator: {
-    backgroundColor: colors.error,
-  },
-  bookedIndicator: {
-    backgroundColor: colors.accent,
   },
   spaceLegend: {
     flexDirection: 'row',
@@ -634,7 +635,6 @@ const styles = StyleSheet.create({
   },
   legendText: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
   },
   emptyContainer: {
     alignItems: 'center',
@@ -643,16 +643,13 @@ const styles = StyleSheet.create({
   emptySpaces: {
     padding: spacing.lg,
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     marginBottom: spacing.md,
   },
   emptyText: {
-    color: colors.textLight,
     textAlign: 'center',
   },
   bookingForm: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: spacing.lg,
     marginTop: spacing.lg,
@@ -669,10 +666,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
   },
   spaceHighlight: {
-    color: colors.primary,
     fontWeight: 'bold',
   },
   formField: {
@@ -681,19 +676,16 @@ const styles = StyleSheet.create({
   formLabel: {
     fontSize: fontSizes.md,
     fontWeight: '500',
-    color: colors.text,
     marginBottom: spacing.xs,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     borderRadius: 5,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     fontSize: fontSizes.md,
   },
   pricingInfo: {
-    backgroundColor: '#F9FAFB',
     borderRadius: 8,
     padding: spacing.md,
   },
@@ -704,20 +696,16 @@ const styles = StyleSheet.create({
   },
   pricingLabel: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
   },
   pricingValue: {
     fontSize: fontSizes.sm,
     fontWeight: '500',
-    color: colors.text,
   },
   formHelperText: {
     fontSize: fontSizes.sm,
-    color: colors.accent,
     fontStyle: 'italic',
   },
   confirmButton: {
-    backgroundColor: colors.primary,
     borderRadius: 5,
     padding: spacing.md,
     alignItems: 'center',

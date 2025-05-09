@@ -1,9 +1,12 @@
-// src/firebase/authService.ts
+// src/firebase/auth.ts
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   signOut as firebaseSignOut,
-  UserCredential
+  UserCredential,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebaseConfig';
@@ -213,6 +216,40 @@ export async function changeUserRole(userId: string, newRole: UserRole): Promise
     });
   } catch (error) {
     console.error('Error changing user role:', error);
+    throw error;
+  }
+}
+
+/**
+ * Change the current user's password
+ * Requires the user to reauthenticate with their current password before setting the new one
+ */
+export async function changeUserPassword(currentPassword: string, newPassword: string): Promise<void> {
+  try {
+    const user = auth.currentUser;
+    
+    if (!user || !user.email) {
+      throw new Error('No authenticated user found');
+    }
+    
+    // Create credential with current email and password
+    const credential = EmailAuthProvider.credential(user.email, currentPassword);
+    
+    // Reauthenticate the user
+    await reauthenticateWithCredential(user, credential);
+    
+    // Update the password
+    await updatePassword(user, newPassword);
+    
+    // Update the user document to record the password change time
+    await updateDoc(doc(db, 'users', user.uid), {
+      passwordUpdatedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    
+    console.log('Password updated successfully');
+  } catch (error) {
+    console.error('Error changing password:', error);
     throw error;
   }
 }

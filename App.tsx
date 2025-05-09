@@ -1,4 +1,4 @@
-// App.tsx - Modified with development mode test users
+// App.tsx - Modified with ThemeProvider
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, ActivityIndicator, StatusBar } from 'react-native';
@@ -7,8 +7,8 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from './src/firebase/firebaseConfig';
 import { colors } from './app/constants/theme';
 import { User, UserRole } from './src/firebase/types';
-import { addTestUsersDirectly } from './src/firebase/addTestUsers';
 import { getCurrentUser } from './src/firebase/auth';
+import { ThemeProvider, useTheme } from './app/context/themeContext';
 
 // Import Navigators
 import AuthNavigator from './app/screens/navigators/authNavigator';
@@ -16,35 +16,12 @@ import UserNavigator from './app/screens/navigators/userNavigator';
 import AdminNavigator from './app/screens/navigators/adminNavigator';
 import WorkerNavigator from './app/screens/navigators/workerNavigator';
 
-// Check if we're in development mode
-const isDevelopment = process.env.NODE_ENV === 'development' || __DEV__;
-
-export default function App() {
+// Main App content component
+const AppContent = () => {
   const [initializing, setInitializing] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
-
-  // Add test users when in development mode
-  useEffect(() => {
-    const setupTestUsers = async () => {
-      // Only run in development mode
-      if (!isDevelopment) return;
-      
-      try {
-        console.log('Setting up test users for development...');
-        
-        // Use the direct method for development
-        await addTestUsersDirectly();
-        
-        console.log('Test users setup completed successfully');
-      } catch (error) {
-        console.error('Error setting up test users:', error);
-      }
-    };
-
-    // Run the setup
-    setupTestUsers();
-  }, []);
+  const { colors, isDarkMode } = useTheme();
 
   // Auth state listener
   useEffect(() => {
@@ -59,13 +36,8 @@ export default function App() {
           // Get current user with our utility function
           const user = await getCurrentUser();
           
-          // In your useEffect in App.tsx, add more detailed logging:
           if (user) {
             console.log(`User data loaded. Role: ${user.role}, ID: ${user.id}, Email: ${user.email}`);
-            setCurrentUser(user);
-          }
-          if (user) {
-            console.log(`User data loaded. Role: ${user.role}`);
             setCurrentUser(user);
           } else {
             console.log("No user data found. Creating fallback user.");
@@ -140,7 +112,7 @@ export default function App() {
   return (
     <>
       <StatusBar 
-        barStyle="light-content" 
+        barStyle={isDarkMode ? "light-content" : "dark-content"} 
         backgroundColor={colors.primary}
       />
       <NavigationContainer>
@@ -155,5 +127,14 @@ export default function App() {
         )}
       </NavigationContainer>
     </>
+  );
+};
+
+// Main App component with ThemeProvider
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }

@@ -2,8 +2,8 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../../constants/theme';
 import { createStackNavigator } from '@react-navigation/stack';
+import { useTheme } from '../../context/themeContext';
 
 // User Screens
 import HomeScreen from '../user/home';
@@ -11,6 +11,7 @@ import BookingScreen from '../user/booking';
 import HistoryScreen from '../user/history';
 import ProfileScreen from '../user/profile';
 import ChangePasswordScreen from '../user/changePassword';
+import AppearanceScreen from '../user/appearance';
 
 // User Tab Param List
 export type UserTabParamList = {
@@ -23,20 +24,32 @@ export type UserTabParamList = {
 export type ProfileStackParamList = {
   ProfileMain: undefined;
   ChangePassword: undefined;
+  Appearance: undefined;
 };
 
 const Tab = createBottomTabNavigator<UserTabParamList>();
 const ProfileStack = createStackNavigator<ProfileStackParamList>();
 
 function ProfileStackNavigator() {
+  const { colors } = useTheme();
+  
   return (
-    <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
+    <ProfileStack.Navigator 
+      screenOptions={{ 
+        headerShown: false,
+        cardStyle: { backgroundColor: colors.background }
+      }}
+    >
       <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
       <ProfileStack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+      <ProfileStack.Screen name="Appearance" component={AppearanceScreen} />
     </ProfileStack.Navigator>
   );
 }
+
 const UserNavigator = () => {
+  const { colors } = useTheme();
+  
   return (
     <Tab.Navigator
       screenOptions={{
@@ -47,12 +60,16 @@ const UserNavigator = () => {
           shadowOpacity: 0.1,
           shadowRadius: 4,
           shadowOffset: { width: 0, height: -2 },
-          borderTopColor: '#E2E8F0',
+          borderTopColor: colors.borderColor,
+          backgroundColor: colors.tabBarBackground,
         },
         headerStyle: {
           backgroundColor: colors.primary,
         },
         headerTintColor: '#FFFFFF',
+        tabBarLabelStyle: {
+          fontSize: 12,
+        },
       }}
     >
       <Tab.Screen 

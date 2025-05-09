@@ -18,27 +18,14 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { changeUserPassword } from '../../../src/firebase/auth';
 import { spacing, fontSizes } from '../../constants/theme';
+import { useTheme } from '../../context/themeContext';
 
 type Props = {
   navigation: any;
 };
 
-const colors = {
-    primary: '#3498db',
-    secondary: '#2ecc71',
-    accent: '#e74c3c',
-    background: '#ecf0f1',
-    cardBackground: '#ffffff',
-    text: '#2c3e50',
-    textLight: '#95a5a6',
-    error: '#e74c3c',
-    success: '#2ecc71',
-    studentHighlight: '#f1c40f',
-    guestHighlight: '#9b59b6',
-    disabled: '#bdc3c7', // Added disabled color
-  };
-
 export default function ChangePasswordScreen({ navigation }: Props) {
+  const { colors, isDarkMode } = useTheme();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -138,12 +125,12 @@ export default function ChangePasswordScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.container}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, { backgroundColor: colors.primary }]}>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
@@ -154,18 +141,21 @@ export default function ChangePasswordScreen({ navigation }: Props) {
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
-          <View style={styles.formContainer}>
-            <Text style={styles.sectionTitle}>Security First</Text>
-            <Text style={styles.description}>
+          <View style={[styles.formContainer, { backgroundColor: colors.cardBackground }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Security First</Text>
+            <Text style={[styles.description, { color: colors.textLight }]}>
               To change your password, please first verify your current password
               and then enter a new strong password.
             </Text>
 
             <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Current Password</Text>
-              <View style={styles.passwordInputWrapper}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Current Password</Text>
+              <View style={[styles.passwordInputWrapper, { 
+                borderColor: colors.borderColor,
+                backgroundColor: isDarkMode ? colors.cardBackground : '#F9FAFB'
+              }]}>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: colors.text }]}
                   placeholder="Enter current password"
                   placeholderTextColor={colors.textLight}
                   secureTextEntry={!showCurrentPassword}
@@ -186,10 +176,13 @@ export default function ChangePasswordScreen({ navigation }: Props) {
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>New Password</Text>
-              <View style={styles.passwordInputWrapper}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>New Password</Text>
+              <View style={[styles.passwordInputWrapper, { 
+                borderColor: colors.borderColor,
+                backgroundColor: isDarkMode ? colors.cardBackground : '#F9FAFB'
+              }]}>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: colors.text }]}
                   placeholder="Enter new password"
                   placeholderTextColor={colors.textLight}
                   secureTextEntry={!showNewPassword}
@@ -213,10 +206,13 @@ export default function ChangePasswordScreen({ navigation }: Props) {
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Confirm New Password</Text>
-              <View style={styles.passwordInputWrapper}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Confirm New Password</Text>
+              <View style={[styles.passwordInputWrapper, { 
+                borderColor: colors.borderColor,
+                backgroundColor: isDarkMode ? colors.cardBackground : '#F9FAFB'
+              }]}>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: colors.text }]}
                   placeholder="Confirm new password"
                   placeholderTextColor={colors.textLight}
                   secureTextEntry={!showConfirmPassword}
@@ -236,8 +232,11 @@ export default function ChangePasswordScreen({ navigation }: Props) {
               </View>
             </View>
 
-            <View style={styles.requirementsContainer}>
-              <Text style={styles.requirementsTitle}>Password Requirements:</Text>
+            <View style={[styles.requirementsContainer, { 
+              backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
+              borderColor: colors.borderColor 
+            }]}>
+              <Text style={[styles.requirementsTitle, { color: colors.text }]}>Password Requirements:</Text>
               <View style={styles.requirementItem}>
                 <Ionicons
                   name={isLengthValid ? 'checkmark-circle' : 'close-circle'}
@@ -312,7 +311,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                   backgroundColor: (isLengthValid && hasUpperCase && hasLowerCase && 
                     hasNumber && passwordsMatch && currentPassword) 
                     ? colors.primary 
-                    : colors.disabled
+                    : isDarkMode ? '#444444' : '#D1D5DB'
                 }
               ]}
               onPress={handleChangePassword}
@@ -344,10 +343,8 @@ export default function ChangePasswordScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   header: {
-    backgroundColor: colors.primary,
     paddingTop: 60,
     paddingBottom: spacing.md,
     paddingHorizontal: spacing.lg,
@@ -366,7 +363,6 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   formContainer: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: spacing.lg,
     marginBottom: spacing.lg,
@@ -379,12 +375,10 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: fontSizes.lg,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.sm,
   },
   description: {
     fontSize: fontSizes.md,
-    color: colors.textLight,
     marginBottom: spacing.lg,
   },
   inputContainer: {
@@ -392,7 +386,6 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: fontSizes.md,
-    color: colors.text,
     marginBottom: spacing.xs,
     fontWeight: '500',
   },
@@ -400,32 +393,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     borderRadius: 8,
-    backgroundColor: '#F9FAFB',
   },
   input: {
     flex: 1,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     fontSize: fontSizes.md,
-    color: colors.text,
   },
   eyeIcon: {
     padding: spacing.md,
   },
   requirementsContainer: {
-    backgroundColor: '#F9FAFB',
     borderRadius: 8,
     padding: spacing.md,
     marginBottom: spacing.lg,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
   },
   requirementsTitle: {
     fontSize: fontSizes.md,
     fontWeight: '500',
-    color: colors.text,
     marginBottom: spacing.sm,
   },
   requirementItem: {
@@ -448,11 +435,4 @@ const styles = StyleSheet.create({
     fontSize: fontSizes.md,
     fontWeight: 'bold',
   },
-  disabled: {
-    backgroundColor: colors.disabled,
-  },
 });
-
-
-
-export { colors };

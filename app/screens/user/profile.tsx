@@ -1,4 +1,3 @@
-
 // app/screens/user/profile.tsx
 import React, { useState, useEffect } from 'react';
 import {
@@ -16,7 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import { signOut, getCurrentUser } from '../../../src/firebase/auth';
-import { colors, spacing, fontSizes } from '../../constants/theme';
+import { spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -26,11 +25,13 @@ import type { User } from '../../../src/firebase/types';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { ProfileStackParamList } from '../navigators/userNavigator';
+import { useTheme } from '../../context/themeContext';
 
 type ProfileScreenNavigationProp = StackNavigationProp<ProfileStackParamList>;
 
 export default function ProfileScreen() {
   const navigation = useNavigation<ProfileScreenNavigationProp>();
+  const { colors, isDarkMode } = useTheme();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [displayName, setDisplayName] = useState('');
@@ -204,29 +205,29 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading profile...</Text>
+        <Text style={[styles.loadingText, { color: colors.textLight }]}>Loading profile...</Text>
       </View>
     );
   }
 
   if (!user) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Failed to load user profile</Text>
+      <View style={[styles.errorContainer, { backgroundColor: colors.background }]}>
+        <Text style={[styles.errorText, { color: colors.error }]}>Failed to load user profile</Text>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <Text style={styles.title}>My Profile</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.profileCard}>
+        <View style={[styles.profileCard, { backgroundColor: colors.cardBackground }]}>
           <View style={styles.avatarContainer}>
             <TouchableOpacity 
               style={styles.avatarWrapper}
@@ -234,16 +235,16 @@ export default function ProfileScreen() {
               disabled={uploadingImage}
             >
               {uploadingImage ? (
-                <View style={styles.avatar}>
+                <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
                   <ActivityIndicator color="#FFFFFF" />
                 </View>
               ) : profileImage ? (
                 <Image 
                   source={{ uri: profileImage }} 
-                  style={styles.avatarImage} 
+                  style={[styles.avatarImage, { borderColor: colors.borderColor }]} 
                 />
               ) : (
-                <View style={styles.avatar}>
+                <View style={[styles.avatar, { backgroundColor: colors.primary, borderColor: colors.borderColor }]}>
                   <Text style={styles.avatarText}>
                     {user.displayName
                       ? user.displayName.charAt(0).toUpperCase()
@@ -251,7 +252,7 @@ export default function ProfileScreen() {
                   </Text>
                 </View>
               )}
-              <View style={styles.cameraBadge}>
+              <View style={[styles.cameraBadge, { backgroundColor: colors.primary }]}>
                 <Ionicons name="camera" size={14} color="#FFFFFF" />
               </View>
             </TouchableOpacity>
@@ -260,33 +261,38 @@ export default function ProfileScreen() {
               {isEditingName ? (
                 <View style={styles.editNameContainer}>
                   <TextInput
-                    style={styles.nameInput}
+                    style={[styles.nameInput, { 
+                      borderColor: colors.borderColor,
+                      backgroundColor: colors.cardBackground,
+                      color: colors.text 
+                    }]}
                     value={displayName}
                     onChangeText={setDisplayName}
                     placeholder="Enter your name"
+                    placeholderTextColor={colors.textLight}
                     autoFocus
                   />
                   <View style={styles.editActions}>
                     <TouchableOpacity
-                      style={[styles.editButton, styles.saveButton]}
+                      style={[styles.editButton, styles.saveButton, { backgroundColor: colors.primary }]}
                       onPress={handleSaveDisplayName}
                     >
                       <Text style={styles.saveButtonText}>Save</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.editButton, styles.cancelButton]}
+                      style={[styles.editButton, styles.cancelButton, { backgroundColor: colors.background }]}
                       onPress={() => {
                         setDisplayName(user.displayName || '');
                         setIsEditingName(false);
                       }}
                     >
-                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                      <Text style={[styles.cancelButtonText, { color: colors.text }]}>Cancel</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
               ) : (
                 <View style={styles.nameContainer}>
-                  <Text style={styles.nameText}>
+                  <Text style={[styles.nameText, { color: colors.text }]}>
                     {user.displayName || user.email?.split('@')[0] || 'User'}
                   </Text>
                   <TouchableOpacity
@@ -297,15 +303,15 @@ export default function ProfileScreen() {
                   </TouchableOpacity>
                 </View>
               )}
-              <Text style={styles.usernameText}>
+              <Text style={[styles.usernameText, { color: colors.primary }]}>
                 @{user.displayName?.toLowerCase().replace(/\s+/g, '') || user.email?.split('@')[0]}
               </Text>
-              <Text style={styles.emailText}>{user.email}</Text>
+              <Text style={[styles.emailText, { color: colors.textLight }]}>{user.email}</Text>
               <View style={[
                 styles.roleBadge,
                 { backgroundColor: user.role === 'student' ? colors.studentHighlight : colors.guestHighlight }
               ]}>
-                <Text style={styles.roleText}>
+                <Text style={[styles.roleText, { color: colors.text }]}>
                   {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                 </Text>
               </View>
@@ -313,110 +319,127 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Account</Text>
+        <View style={[styles.sectionContainer, { backgroundColor: colors.cardBackground }]}>
+          <Text style={[styles.sectionTitle, { 
+            color: colors.text,
+            borderBottomColor: colors.borderColor 
+          }]}>Account</Text>
           
-          <View style={styles.menuItem}>
-            <View style={styles.menuItemIconContainer}>
+          <View style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}>
+            <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="mail-outline" size={20} color={colors.primary} />
             </View>
             <View style={styles.menuItemContent}>
-              <Text style={styles.menuItemTitle}>Email</Text>
-              <Text style={styles.menuItemValue}>{user.email}</Text>
+              <Text style={[styles.menuItemTitle, { color: colors.text }]}>Email</Text>
+              <Text style={[styles.menuItemValue, { color: colors.textLight }]}>{user.email}</Text>
             </View>
           </View>
           
-          <View style={styles.menuItem}>
-            <View style={styles.menuItemIconContainer}>
+          <View style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}>
+            <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="calendar-outline" size={20} color={colors.primary} />
             </View>
             <View style={styles.menuItemContent}>
-              <Text style={styles.menuItemTitle}>Joined</Text>
-              <Text style={styles.menuItemValue}>
+              <Text style={[styles.menuItemTitle, { color: colors.text }]}>Joined</Text>
+              <Text style={[styles.menuItemValue, { color: colors.textLight }]}>
                 {new Date(user.createdAt).toLocaleDateString()}
               </Text>
             </View>
           </View>
           
           <TouchableOpacity 
-            style={styles.menuItem}
+            style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}
             onPress={() => navigation.navigate('ChangePassword')}
           >
-            <View style={styles.menuItemIconContainer}>
+            <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="key-outline" size={20} color={colors.primary} />
             </View>
             <View style={styles.menuItemContent}>
-              <Text style={styles.menuItemTitle}>Change Password</Text>
+              <Text style={[styles.menuItemTitle, { color: colors.text }]}>Change Password</Text>
               <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
             </View>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Preferences</Text>
+        <View style={[styles.sectionContainer, { backgroundColor: colors.cardBackground }]}>
+          <Text style={[styles.sectionTitle, { 
+            color: colors.text,
+            borderBottomColor: colors.borderColor 
+          }]}>Preferences</Text>
           
-          <View style={styles.menuItem}>
-            <View style={styles.menuItemIconContainer}>
+          <View style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}>
+            <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="notifications-outline" size={20} color={colors.primary} />
             </View>
             <View style={styles.menuItemContent}>
-              <Text style={styles.menuItemTitle}>Notifications</Text>
+              <Text style={[styles.menuItemTitle, { color: colors.text }]}>Notifications</Text>
               <Switch
                 value={notificationsEnabled}
                 onValueChange={setNotificationsEnabled}
-                trackColor={{ false: '#E5E7EB', true: colors.primary }}
+                trackColor={{ false: isDarkMode ? '#444' : '#E5E7EB', true: colors.primary }}
                 thumbColor="#FFFFFF"
               />
             </View>
           </View>
           
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuItemIconContainer}>
+          <TouchableOpacity 
+            style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}
+            onPress={() => navigation.navigate('Appearance')}
+          >
+            <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="color-palette-outline" size={20} color={colors.primary} />
             </View>
             <View style={styles.menuItemContent}>
-              <Text style={styles.menuItemTitle}>Appearance</Text>
-              <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+              <Text style={[styles.menuItemTitle, { color: colors.text }]}>Appearance</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={[{ marginRight: 8, color: colors.textLight, fontSize: fontSizes.sm }]}>
+                  {isDarkMode ? 'Dark Mode' : 'Light Mode'}
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+              </View>
             </View>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Support</Text>
+        <View style={[styles.sectionContainer, { backgroundColor: colors.cardBackground }]}>
+          <Text style={[styles.sectionTitle, { 
+            color: colors.text,
+            borderBottomColor: colors.borderColor 
+          }]}>Support</Text>
           
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuItemIconContainer}>
+          <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}>
+            <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="help-circle-outline" size={20} color={colors.primary} />
             </View>
             <View style={styles.menuItemContent}>
-              <Text style={styles.menuItemTitle}>Help & Support</Text>
+              <Text style={[styles.menuItemTitle, { color: colors.text }]}>Help & Support</Text>
               <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
             </View>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuItemIconContainer}>
+          <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}>
+            <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="document-text-outline" size={20} color={colors.primary} />
             </View>
             <View style={styles.menuItemContent}>
-              <Text style={styles.menuItemTitle}>Terms of Service</Text>
+              <Text style={[styles.menuItemTitle, { color: colors.text }]}>Terms of Service</Text>
               <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
             </View>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuItemIconContainer}>
+          <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}>
+            <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="shield-outline" size={20} color={colors.primary} />
             </View>
             <View style={styles.menuItemContent}>
-              <Text style={styles.menuItemTitle}>Privacy Policy</Text>
+              <Text style={[styles.menuItemTitle, { color: colors.text }]}>Privacy Policy</Text>
               <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
             </View>
           </TouchableOpacity>
         </View>
 
         <TouchableOpacity
-          style={styles.signOutButton}
+          style={[styles.signOutButton, { backgroundColor: isDarkMode ? '#3B1919' : '#FEE2E2' }]}
           onPress={handleSignOut}
         >
           <Text style={styles.signOutButtonText}>Sign Out</Text>
@@ -429,10 +452,8 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   header: {
-    backgroundColor: colors.primary,
     paddingTop: 60,
     paddingBottom: spacing.md,
     paddingHorizontal: spacing.lg,
@@ -449,25 +470,20 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.background,
   },
   loadingText: {
     marginTop: spacing.md,
     fontSize: fontSizes.md,
-    color: colors.textLight,
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.background,
   },
   errorText: {
-    color: colors.error,
     fontSize: fontSizes.md,
   },
   profileCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: spacing.md,
     marginBottom: spacing.lg,
@@ -489,18 +505,15 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: '#E5E7EB',
   },
   avatarImage: {
     width: 80,
     height: 80,
     borderRadius: 40,
     borderWidth: 2,
-    borderColor: '#E5E7EB',
   },
   avatarText: {
     fontSize: fontSizes.xl,
@@ -511,7 +524,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: colors.primary,
     width: 28,
     height: 28,
     borderRadius: 14,
@@ -531,12 +543,10 @@ const styles = StyleSheet.create({
   nameText: {
     fontSize: fontSizes.lg,
     fontWeight: 'bold',
-    color: colors.text,
     marginRight: spacing.xs,
   },
   usernameText: {
     fontSize: fontSizes.md,
-    color: colors.primary,
     marginBottom: spacing.xs / 2,
     fontWeight: '500',
   },
@@ -548,7 +558,6 @@ const styles = StyleSheet.create({
   },
   nameInput: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     borderRadius: 5,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
@@ -565,21 +574,17 @@ const styles = StyleSheet.create({
     marginRight: spacing.xs,
   },
   saveButton: {
-    backgroundColor: colors.primary,
   },
   saveButtonText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
   },
   cancelButton: {
-    backgroundColor: '#F3F4F6',
   },
   cancelButtonText: {
-    color: colors.text,
   },
   emailText: {
     fontSize: fontSizes.md,
-    color: colors.textLight,
     marginBottom: spacing.xs,
   },
   roleBadge: {
@@ -591,10 +596,8 @@ const styles = StyleSheet.create({
   roleText: {
     fontSize: fontSizes.sm,
     fontWeight: '500',
-    color: colors.text,
   },
   sectionContainer: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     marginBottom: spacing.md,
     shadowColor: '#000',
@@ -607,10 +610,8 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.text,
     padding: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
   },
   menuItem: {
     flexDirection: 'row',
@@ -618,13 +619,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
   },
   menuItemIconContainer: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.md,
@@ -637,14 +636,11 @@ const styles = StyleSheet.create({
   },
   menuItemTitle: {
     fontSize: fontSizes.md,
-    color: colors.text,
   },
   menuItemValue: {
     fontSize: fontSizes.md,
-    color: colors.textLight,
   },
   signOutButton: {
-    backgroundColor: '#FEE2E2',
     paddingVertical: spacing.md,
     borderRadius: 10,
     alignItems: 'center',
