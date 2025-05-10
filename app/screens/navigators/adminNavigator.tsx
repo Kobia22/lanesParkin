@@ -9,7 +9,7 @@ import { colors } from '../../constants/theme';
 import AdminDashboardScreen from '../admin/dashboard';
 import AnalyticsScreen from '../admin/analytics';
 import ParkingLotAdminPanel from '../admin/parkingLotAdminPanel';
-import ParkingSpaceAdminPanel from '../admin/parkingSpace';
+import ParkingSpaceAdminPanel from '../admin/parkingSpaceAdminPanel';
 import AdminProfileScreen from '../admin/profile';
 
 // Admin Stack Param List for the parking management
@@ -24,6 +24,7 @@ const ParkingStack = createStackNavigator<AdminParkingStackParamList>();
 const ParkingManagementNavigator = () => {
   return (
     <ParkingStack.Navigator
+      initialRouteName="ParkingLotAdminPanel"
       screenOptions={{
         headerShown: true,
         headerStyle: {
@@ -50,7 +51,7 @@ const ParkingManagementNavigator = () => {
 export type AdminTabParamList = {
   Dashboard: undefined;
   Analytics: undefined;
-  ParkingManagement: undefined;
+  ParkingManagement: undefined | { screen: string, params?: any };
   Profile: undefined;
 };
 

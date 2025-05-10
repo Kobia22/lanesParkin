@@ -21,7 +21,7 @@ import { colors, spacing, fontSizes } from '../../constants/theme';
 import { ParkingLot } from '../../../src/firebase/types';
 import { AdminParkingStackParamList } from '../navigators/adminNavigator';
 
-// Import the API service instead of direct Firebase functions
+// Import the API service functions - make sure to use the correct import
 import { 
   getAllParkingLots, 
   getParkingLotById,
@@ -72,8 +72,10 @@ export default function ParkingLotAdminPanel({ navigation }: ParkingLotAdminPane
       setLoading(true);
       setError(null);
       
-      // Our API function
+      console.log("Fetching parking lots...");
+      // Our API function from parkingService
       const lots = await getAllParkingLots();
+      console.log(`Fetched ${lots.length} parking lots`);
       
       // In case the API returns null or undefined
       if (!lots) {
@@ -121,6 +123,7 @@ export default function ParkingLotAdminPanel({ navigation }: ParkingLotAdminPane
 
   // Navigate to manage spaces for a lot
   const handleManageSpaces = (lot: ParkingLot) => {
+    console.log(`Navigating to spaces management for lot: ${lot.id}`);
     navigation.navigate('ParkingSpaceAdminPanel', { lotId: lot.id });
   };
 
@@ -163,6 +166,7 @@ export default function ParkingLotAdminPanel({ navigation }: ParkingLotAdminPane
 
       if (editingLot) {
         // Update existing lot using the API
+        console.log(`Updating lot ${editingLot.id}:`, lotData);
         await updateParkingLot(editingLot.id, lotData);
         setSuccessMessage('Parking lot updated successfully');
         
@@ -172,7 +176,9 @@ export default function ParkingLotAdminPanel({ navigation }: ParkingLotAdminPane
         );
       } else {
         // Create new lot using the API
+        console.log('Creating new lot:', lotData);
         const newLot = await createParkingLot(lotData);
+        console.log('New lot created:', newLot);
         setSuccessMessage('Parking lot added successfully');
         
         // Create initial parking spaces if requested
@@ -181,7 +187,9 @@ export default function ParkingLotAdminPanel({ navigation }: ParkingLotAdminPane
             setSuccessMessage('Creating parking spaces...');
             
             // Use the bulk creation API
-            await createMultipleParkingSpaces(newLot.id, 1, totalSpaces);
+            console.log(`Creating ${totalSpaces} spaces for lot ${newLot.id}`);
+            const createdSpaces = await createMultipleParkingSpaces(newLot.id, 1, totalSpaces);
+            console.log(`Created ${createdSpaces.length} spaces for lot ${newLot.id}`);
             
             setSuccessMessage(`Parking lot and ${totalSpaces} spaces created successfully`);
           } catch (err) {
@@ -190,7 +198,7 @@ export default function ParkingLotAdminPanel({ navigation }: ParkingLotAdminPane
           }
         }
         
-        // Update local state
+        // Update local state - ensure we add the new lot to the list
         setParkingLots(prev => [...prev, newLot]);
       }
 
@@ -220,6 +228,7 @@ export default function ParkingLotAdminPanel({ navigation }: ParkingLotAdminPane
           onPress: async () => {
             try {
               setLoading(true);
+              console.log(`Deleting lot: ${lot.id}`);
               // Use the API to delete the lot (and its spaces)
               await deleteParkingLot(lot.id);
               
@@ -269,6 +278,14 @@ export default function ParkingLotAdminPanel({ navigation }: ParkingLotAdminPane
             >
               <Ionicons name="add" size={20} color="#FFFFFF" />
               <Text style={styles.addButtonText}>Add New Lot</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.refreshButton}
+              onPress={loadParkingLots}
+            >
+              <Ionicons name="refresh" size={20} color="#FFFFFF" />
+              <Text style={styles.refreshButtonText}>Refresh</Text>
             </TouchableOpacity>
           </View>
           
@@ -557,7 +574,7 @@ const styles = StyleSheet.create({
   },
   actionsContainer: {
     flexDirection: 'row',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
   addButton: {
@@ -569,6 +586,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   addButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    marginLeft: spacing.xs,
+  },
+  refreshButton: {
+    backgroundColor: colors.accent,
+    borderRadius: 8,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  refreshButtonText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
     marginLeft: spacing.xs,

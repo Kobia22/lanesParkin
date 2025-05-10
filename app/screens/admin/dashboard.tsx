@@ -13,28 +13,25 @@ import {
   RefreshControl,
   Alert
 } from 'react-native';
-import { fetchActiveOrAbandonedBookings } from '../../../src/firebase/admin';
-import { fetchParkingLots } from '../../../src/firebase/database';
+import { fetchActiveOrAbandonedBookings, fetchAnalytics } from '../../../src/firebase/admin';
+import { getAllParkingLots as fetchParkingLots } from '../../../src/api/parkingService';
 import { getCurrentUser } from '../../../src/firebase/auth';
 import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import type { Booking, ParkingLot, User } from '../../../src/firebase/types';
-import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { initializeDatabase } from '../../../src/api/initializeDatabase';
 import { verifyApiIntegration } from '../../../src/api/verifyApiIntegration';
 
-type AdminStackParamList = {
-  AdminDashboard: undefined;
+type AdminTabParamList = {
+  Dashboard: undefined;
   Analytics: undefined;
-  ParkingLotAdminPanel: undefined;
-  ParkingSpaceAdminPanel: { lotId: string | null };
-  AdminProfile: undefined;
-  ParkingManagement: undefined;
+  ParkingManagement: undefined | { screen: string, params?: any };
+  Profile: undefined;
 };
 
 type AdminDashboardScreenProps = {
-  navigation: BottomTabNavigationProp<AdminStackParamList, 'AdminDashboard'>;
+  navigation: BottomTabNavigationProp<AdminTabParamList, 'Dashboard'>;
 };
 
 export default function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) {
@@ -59,12 +56,14 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
       const activeBookings = await fetchActiveOrAbandonedBookings();
       setBookings(activeBookings);
       
-      // Fetch parking lots summary
+      // Fetch parking lots summary using the API service
+      console.log('Fetching parking lots for dashboard...');
       const parkingLots = await fetchParkingLots();
+      console.log(`Fetched ${parkingLots.length} parking lots for dashboard`);
       setLots(parkingLots);
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
-      setError('Failed to load dashboard data');
+      setError('Failed to load dashboard data. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -147,6 +146,7 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
 
   // Navigate to parking lots management
   const handleManageLots = () => {
+    // Navigate directly to the ParkingManagement tab
     navigation.navigate('ParkingManagement');
   };
 
@@ -156,8 +156,8 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
     const availableSpaces = lots.reduce((sum, lot) => sum + lot.availableSpaces, 0);
     const occupiedSpaces = lots.reduce((sum, lot) => sum + lot.occupiedSpaces, 0);
     const occupancyRate = totalSpaces > 0 ? Math.round((occupiedSpaces / totalSpaces) * 100) : 0;
-    const activeBookingsCount = bookings.filter(b => b.status === 'active' as Booking['status']).length;
-    const abandonedBookingsCount = bookings.filter(b => b.status === 'abandoned').length;
+    const activeBookingsCount = bookings.filter(b => b.status === 'occupied').length;
+    const abandonedBookingsCount = bookings.filter(b => b.status === 'expired').length;
     
     return {
       totalSpaces,
@@ -310,7 +310,7 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
           </View>
           
           <FlatList
-            data={bookings.filter(b => b.status === ('active' as Booking['status'])).slice(0, 5)}
+            data={bookings.filter(b => b.status === 'occupied').slice(0, 5)}
             keyExtractor={(item) => item.id}
             scrollEnabled={false}
             renderItem={({ item }) => (
@@ -318,7 +318,7 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
                 <View style={styles.bookingInfo}>
                   <Text style={styles.bookingId}>ID: {item.id.substring(0, 8)}...</Text>
                   <Text style={styles.bookingDetails}>
-                    Lot: {item.lotId.split('/').pop()} | Space: {item.spaceId.split('/').pop()}
+                    Lot: {item.lotName} | Space: {item.spaceNumber}
                   </Text>
                   <Text style={styles.bookingTime}>
                     Started: {new Date(item.startTime).toLocaleString()}
@@ -339,14 +339,14 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
 
         <View style={styles.abandonedContainer}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Abandoned Bookings</Text>
+            <Text style={styles.sectionTitle}>Expired Bookings</Text>
             <TouchableOpacity style={styles.viewAllButton}>
               <Text style={styles.viewAllText}>View All</Text>
             </TouchableOpacity>
           </View>
           
           <FlatList
-            data={bookings.filter(b => b.status === 'abandoned').slice(0, 3)}
+            data={bookings.filter(b => b.status === 'expired').slice(0, 3)}
             keyExtractor={(item) => item.id}
             scrollEnabled={false}
             renderItem={({ item }) => (
@@ -354,7 +354,7 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
                 <View style={styles.bookingInfo}>
                   <Text style={styles.bookingId}>ID: {item.id.substring(0, 8)}...</Text>
                   <Text style={styles.bookingDetails}>
-                    Lot: {item.lotId.split('/').pop()} | Space: {item.spaceId.split('/').pop()}
+                    Lot: {item.lotName} | Space: {item.spaceNumber}
                   </Text>
                   <Text style={styles.bookingTime}>
                     Started: {new Date(item.startTime).toLocaleString()}
@@ -362,53 +362,19 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
                 </View>
                 <View style={styles.bookingStatus}>
                   <View style={[styles.statusBadge, styles.abandonedBadge]}>
-                    <Text style={styles.abandonedText}>ABANDONED</Text>
+                    <Text style={styles.abandonedText}>EXPIRED</Text>
                   </View>
                 </View>
               </View>
             )}
             ListEmptyComponent={
-              <Text style={styles.emptyText}>No abandoned bookings</Text>
+              <Text style={styles.emptyText}>No expired bookings</Text>
             }
           />
         </View>
 
         <View style={styles.quickActionContainer}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
-          
-          <View style={styles.quickActionGrid}>
-            <TouchableOpacity 
-              style={styles.actionCard}
-              onPress={handleManageLots}
-            >
-              <Ionicons name="car" size={24} color={colors.primary} />
-              <Text style={styles.actionText}>Manage Lots</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.actionCard}
-              onPress={() => navigation.navigate('ParkingSpaceAdminPanel', { lotId: null })}
-            >
-              <Ionicons name="grid" size={24} color={colors.primary} />
-              <Text style={styles.actionText}>Manage Spaces</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.actionCard}
-              onPress={() => navigation.navigate('Analytics')}
-            >
-              <Ionicons name="bar-chart" size={24} color={colors.primary} />
-              <Text style={styles.actionText}>Analytics</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.actionCard}
-              onPress={handleInitializeDatabase}
-            >
-              <Ionicons name="refresh" size={24} color={colors.primary} />
-              <Text style={styles.actionText}>Init Database</Text>
-            </TouchableOpacity>
-          </View>
           
           <View style={styles.quickActionGrid}>
             <TouchableOpacity 
@@ -424,6 +390,7 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -719,3 +686,4 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
 });
+            

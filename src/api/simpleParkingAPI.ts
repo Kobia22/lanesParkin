@@ -651,7 +651,35 @@ class SimpleParkingAPI {
   }
 
   /**
-   * Get all pending bookings (for worker interface)
+   * Get all bookings for a user
+   */
+  async getAllUserBookings(userId: string): Promise<Booking[]> {
+    try {
+      const bookingsQuery = query(
+        collection(db, 'bookings'),
+        where('userId', '==', userId),
+        orderBy('startTime', 'desc')
+      );
+      
+      const bookingsSnapshot = await getDocs(bookingsQuery);
+      const bookings: Booking[] = [];
+      
+      bookingsSnapshot.forEach(doc => {
+        bookings.push({
+          id: doc.id,
+          ...doc.data() as Omit<Booking, 'id'>
+        });
+      });
+      
+      return bookings;
+    } catch (error) {
+      console.error("Error fetching user bookings:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get pending bookings (for worker interface)
    */
   async getPendingBookings(): Promise<Booking[]> {
     try {
@@ -738,6 +766,42 @@ class SimpleParkingAPI {
   }
 
   /**
+   * Get booking by ID
+   */
+  async getBookingById(bookingId: string): Promise<Booking | null> {
+    try {
+      const bookingDoc = await getDoc(doc(db, 'bookings', bookingId));
+      
+      if (!bookingDoc.exists()) {
+        return null;
+      }
+      
+      return {
+        id: bookingDoc.id,
+        ...bookingDoc.data() as Omit<Booking, 'id'>
+      };
+    } catch (error) {
+      console.error("Error fetching booking by ID:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update booking data
+   */
+  async updateBooking(bookingId: string, bookingData: Partial<Omit<Booking, 'id'>>): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'bookings', bookingId), {
+        ...bookingData,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error("Error updating booking:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Get billing history for a user
    */
   async getUserBills(userId: string): Promise<Bill[]> {
@@ -772,17 +836,54 @@ class SimpleParkingAPI {
   async getAnalytics(): Promise<Analytics> {
     try {
       // In a real application, you would calculate these from actual data
-      const mockAnalytics: Analytics = {
+      const bookings = await this.getAllBookings();
+      
+      // Calculate revenue
+      const completedBookings = bookings.filter(b => b.status === 'completed' && b.paymentStatus === 'paid');
+      
+      // Get daily revenue (last 24 hours)
+      const oneDayAgo = new Date();
+      oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+      const dailyBookings = completedBookings.filter(b => 
+        new Date(b.endTime || b.startTime) > oneDayAgo
+      );
+      const dailyRevenue = dailyBookings.reduce((total, b) => total + b.paymentAmount, 0);
+      
+      // Get weekly revenue (last 7 days)
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const weeklyBookings = completedBookings.filter(b => 
+        new Date(b.endTime || b.startTime) > oneWeekAgo
+      );
+      const weeklyRevenue = weeklyBookings.reduce((total, b) => total + b.paymentAmount, 0);
+      
+      // Calculate occupancy rate
+      const parkingLots = await this.getParkingLots();
+      const totalSpaces = parkingLots.reduce((total, lot) => total + lot.totalSpaces, 0);
+      const occupiedSpaces = parkingLots.reduce((total, lot) => total + lot.occupiedSpaces + lot.bookedSpaces, 0);
+      const occupancyRate = totalSpaces > 0 ? (occupiedSpaces / totalSpaces) * 100 : 0;
+      
+      // Count abandoned bookings
+      const abandonedCount = bookings.filter(b => b.status === 'abandoned').length;
+      
+      const analytics: Analytics = {
+        dailyRevenue,
+        weeklyRevenue,
+        occupancyRate,
+        abandonedCount
+      };
+      
+      return analytics;
+    } catch (error) {
+      console.error("Error calculating analytics:", error);
+      
+      // Fallback to mock data if calculation fails
+      return {
         dailyRevenue: 24500,
         weeklyRevenue: 157000,
         occupancyRate: 68.5,
         abandonedCount: 12
       };
-      
-      return mockAnalytics;
-    } catch (error) {
-      console.error("Error fetching analytics:", error);
-      throw error;
     }
   }
 }

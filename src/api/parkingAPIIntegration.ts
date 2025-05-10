@@ -7,7 +7,9 @@ import {
   ParkingSpaceStatus, 
   UserRole, 
   Bill,
-  Analytics
+  Analytics,
+  BookingStatus,
+  PaymentStatus
 } from '../firebase/types';
 
 // These functions will act as drop-in replacements for your existing Firebase functions
@@ -94,13 +96,61 @@ export const getPendingBookings = async (): Promise<Booking[]> => {
   return parkingAPI.getPendingBookings();
 };
 
+export const getUserBookings = async (userId: string): Promise<Booking[]> => {
+  try {
+    // Get active bookings
+    const activeBookings = await parkingAPI.getActiveBookings(userId);
+    
+    // Get all bookings for this user from the database
+    const allBookings = await parkingAPI.getAllUserBookings(userId);
+    
+    // Sort by start time, newest first
+    allBookings.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    
+    return allBookings;
+  } catch (error) {
+    console.error("Error fetching user bookings:", error);
+    throw error;
+  }
+};
+
 export const getUserBills = async (userId: string): Promise<Bill[]> => {
   return parkingAPI.getUserBills(userId);
 };
 
+export const updateBookingStatus = async (
+  bookingId: string, 
+  status: BookingStatus, 
+  endTime?: string
+): Promise<void> => {
+  try {
+    const bookingRef = await parkingAPI.getBookingById(bookingId);
+    if (!bookingRef) {
+      throw new Error("Booking not found");
+    }
+    
+    let updateData: any = { status };
+    
+    if (endTime) {
+      updateData.endTime = endTime;
+    }
+    
+    await parkingAPI.updateBooking(bookingId, updateData);
+    
+    // If cancelling a booking, free up the space
+    if (status === 'cancelled') {
+      const booking = bookingRef;
+      await updateParkingSpaceStatus(booking.spaceId, 'vacant');
+    }
+  } catch (error) {
+    console.error("Error updating booking status:", error);
+    throw error;
+  }
+};
+
 // ===== Admin-specific functions =====
 export const fetchActiveOrAbandonedBookings = async (): Promise<Booking[]> => {
-  // This is a specialized function that we need to implement
+  // This is a specialized function for admin dashboard
   try {
     const bookings = await parkingAPI.getParkingBookings();
     return bookings.filter(booking => 
@@ -131,6 +181,17 @@ export const fetchRecentBookings = async (limit: number = 10): Promise<Booking[]
     return bookings.slice(0, limit);
   } catch (error) {
     console.error("Error fetching recent bookings:", error);
+    throw error;
+  }
+};
+
+// Add a function to get occupied spaces
+export const getOccupiedSpaces = async (lotId: string): Promise<ParkingSpace[]> => {
+  try {
+    const spaces = await fetchParkingSpaces(lotId);
+    return spaces.filter(space => space.status === 'occupied');
+  } catch (error) {
+    console.error("Error fetching occupied spaces:", error);
     throw error;
   }
 };

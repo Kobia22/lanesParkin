@@ -1,5 +1,5 @@
-// app/screens/worker/dashboard.tsx
-import React, { useState, useEffect } from 'react';
+// app/screens/worker/dashboard.tsx - Updated with real-time updates
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,8 @@ import type { ParkingLot, ParkingSpace, User } from '../../../src/firebase/types
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { WorkerTabParamList } from '../navigators/workerNavigator';
+// Import the real-time updates service
+import parkingUpdateService from '../../../src/firebase/realtimeUpdates';
 
 type WorkerNavigationProp = BottomTabNavigationProp<WorkerTabParamList>;
 
@@ -29,38 +31,9 @@ export default function WorkerDashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Store unsubscribe function
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   
-  // Mock data for the demonstration
-  const mockParkingLots: ParkingLot[] = [
-    {
-      id: 'lot1',
-      name: 'Lot A',
-      location: 'North Wing',
-      totalSpaces: 50,
-      availableSpaces: 30,
-      occupiedSpaces: 15,
-      bookedSpaces: 5
-    },
-    {
-      id: 'lot2',
-      name: 'Lot B',
-      location: 'South Wing',
-      totalSpaces: 40,
-      availableSpaces: 25,
-      occupiedSpaces: 10,
-      bookedSpaces: 5
-    },
-    {
-      id: 'lot3',
-      name: 'Lot C',
-      location: 'East Wing',
-      totalSpaces: 30,
-      availableSpaces: 20,
-      occupiedSpaces: 6,
-      bookedSpaces: 4
-    }
-  ];
-
   // Pending bookings count (would come from database in real app)
   const pendingBookingsCount = 3;
   
@@ -77,10 +50,20 @@ export default function WorkerDashboardScreen() {
       const currentUser = await getCurrentUser();
       setUser(currentUser);
       
-      // In a real app, these would come from the database
-      // Fetch parking lots
-      // const parkingLots = await fetchParkingLots();
-      setLots(mockParkingLots);
+      // Initial fetch of parking lots
+      const parkingLots = await fetchParkingLots();
+      setLots(parkingLots);
+      
+      // Subscribe to real-time updates for all lots
+      // Clean up any existing subscription first
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+      
+      unsubscribeRef.current = parkingUpdateService.subscribeToAllLots((updatedLots) => {
+        console.log('Worker dashboard: Real-time parking lots update received:', updatedLots.length);
+        setLots(updatedLots);
+      });
       
       // For demonstration purposes, we'll use mock data
       // In a real app, we'd call getOccupiedSpaces()
@@ -97,6 +80,13 @@ export default function WorkerDashboardScreen() {
 
   useEffect(() => {
     loadData();
+    
+    // Clean up on unmount
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+    };
   }, []);
 
   // Handle pull-to-refresh

@@ -1,5 +1,5 @@
-// app/screens/user/booking.tsx
-import React, { useState, useEffect } from 'react';
+// app/screens/user/booking.tsx - Updated with real-time updates
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,7 @@ import {
   fetchParkingSpaces,
   createBooking,
   fetchParkingLots,
-} from '../../../src/firebase/database';
+} from '../../../src/api/parkingAPIIntegration';
 import { getCurrentUser } from '../../../src/firebase/auth';
 import { spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +26,7 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { RouteProp } from '@react-navigation/native';
 import type { ParkingLot, ParkingSpace, User } from '../../../src/firebase/types';
 import { useTheme } from '../../context/themeContext';
+import parkingUpdateService from '../../../src/firebase/realTimeUpdates';
 
 type UserStackParamList = {
   Home: undefined;
@@ -51,6 +52,10 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
   const [bookingLoading, setBookingLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Store unsubscribe functions
+  const lotsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const spacesUnsubscribeRef = useRef<(() => void) | null>(null);
+  const selectedLotUnsubscribeRef = useRef<(() => void) | null>(null);
 
   // Load user, parking lots, and any lot passed in route params
   useEffect(() => {
@@ -62,17 +67,36 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
         const user = await getCurrentUser();
         setCurrentUser(user);
         
-        // Fetch all parking lots
+        // Initial fetch of all parking lots
         const lots = await fetchParkingLots();
         setParkingLots(lots);
         
+        // Subscribe to real-time updates for all lots
+        if (lotsUnsubscribeRef.current) {
+          lotsUnsubscribeRef.current();
+        }
+        
+        lotsUnsubscribeRef.current = parkingUpdateService.subscribeToAllLots((updatedLots) => {
+          console.log('Booking screen: Real-time parking lots update received:', updatedLots.length);
+          setParkingLots(updatedLots);
+          
+          // If we have a selected lot, update its data too
+          if (selectedLot) {
+            const updatedSelectedLot = updatedLots.find(lot => lot.id === selectedLot.id);
+            if (updatedSelectedLot && JSON.stringify(updatedSelectedLot) !== JSON.stringify(selectedLot)) {
+              console.log(`Auto-updating selected lot ${selectedLot.id} with new data`);
+              setSelectedLot(updatedSelectedLot);
+            }
+          }
+        });
+        
+        // If a specific lot is passed in route params, select it
         if (route.params?.lotId) {
           const lot = await getParkingLot(route.params.lotId);
           if (lot) {
             setSelectedLot(lot);
-            // Also load spaces for this lot
-            const spaces = await fetchParkingSpaces(lot.id);
-            setParkingSpaces(spaces);
+            // Subscribe to real-time updates for this specific lot's spaces
+            await subscribeToSpaces(lot.id);
           }
         }
       } catch (err) {
@@ -84,7 +108,73 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
     };
 
     fetchInitialData();
+    
+    // Clean up subscriptions when component unmounts
+    return () => {
+      if (lotsUnsubscribeRef.current) {
+        lotsUnsubscribeRef.current();
+      }
+      if (spacesUnsubscribeRef.current) {
+        spacesUnsubscribeRef.current();
+      }
+      if (selectedLotUnsubscribeRef.current) {
+        selectedLotUnsubscribeRef.current();
+      }
+    };
   }, [route.params?.lotId]);
+
+  // Subscribe to spaces for a lot
+  const subscribeToSpaces = async (lotId: string) => {
+    try {
+      // First, get initial data
+      const spaces = await fetchParkingSpaces(lotId);
+      setParkingSpaces(spaces);
+      
+      // Then subscribe to updates
+      if (spacesUnsubscribeRef.current) {
+        spacesUnsubscribeRef.current();
+      }
+      
+      spacesUnsubscribeRef.current = parkingUpdateService.subscribeToSpaces(lotId, (updatedSpaces) => {
+        console.log(`Booking screen: Real-time spaces update for lot ${lotId}:`, updatedSpaces.length);
+        setParkingSpaces(updatedSpaces);
+        
+        // If we have a selected space, check if it's still available
+        if (selectedSpace) {
+          const updatedSelectedSpace = updatedSpaces.find(space => space.id === selectedSpace.id);
+          
+          // If space was selected but is no longer available, show alert and deselect
+          if (updatedSelectedSpace && !isSpaceBookable(updatedSelectedSpace) && isSpaceBookable(selectedSpace)) {
+            Alert.alert(
+              'Space No Longer Available',
+              `The parking space #${selectedSpace.number} you selected is no longer available. Please select another space.`,
+              [{ text: 'OK' }]
+            );
+            setSelectedSpace(null);
+          } else if (updatedSelectedSpace && JSON.stringify(updatedSelectedSpace) !== JSON.stringify(selectedSpace)) {
+            // Update the selected space data
+            setSelectedSpace(updatedSelectedSpace);
+          }
+        }
+      });
+
+      // Also subscribe to real-time updates for the selected lot
+      if (selectedLotUnsubscribeRef.current) {
+        selectedLotUnsubscribeRef.current();
+      }
+      
+      selectedLotUnsubscribeRef.current = parkingUpdateService.subscribeToLot(lotId, (updatedLot) => {
+        console.log(`Booking screen: Real-time update for selected lot ${lotId}`);
+        setSelectedLot(updatedLot);
+      });
+      
+    } catch (err) {
+      console.error('Error subscribing to parking spaces:', err);
+      setError('Failed to load parking spaces');
+      return false;
+    }
+    return true;
+  };
 
   // Handle refresh
   const onRefresh = async () => {
@@ -97,8 +187,7 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
         const updatedLot = await getParkingLot(selectedLot.id);
         if (updatedLot) {
           setSelectedLot(updatedLot);
-          const spaces = await fetchParkingSpaces(updatedLot.id);
-          setParkingSpaces(spaces);
+          await subscribeToSpaces(updatedLot.id);
         }
       }
     } catch (err) {
@@ -116,10 +205,14 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
       setSelectedLot(lot);
       setSelectedSpace(null);
       
-      const spaces = await fetchParkingSpaces(lot.id);
-      setParkingSpaces(spaces);
+      // Subscribe to space updates for this lot
+      const success = await subscribeToSpaces(lot.id);
+      
+      if (!success) {
+        throw new Error('Failed to load parking spaces');
+      }
     } catch (err) {
-      console.error('Error fetching spaces:', err);
+      console.error('Error selecting lot:', err);
       setError('Failed to load parking spaces');
     } finally {
       setLoading(false);
@@ -146,6 +239,23 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
     try {
       setBookingLoading(true);
       setError(null);
+
+      // Verify the space is still available before booking
+      const latestSpace = await getLatestSpaceStatus(selectedSpace.id);
+      if (!latestSpace || !isSpaceBookable(latestSpace)) {
+        Alert.alert(
+          'Space No Longer Available',
+          'This parking space is no longer available. Please select another space.',
+          [{ text: 'OK' }]
+        );
+        // Refresh spaces to show updated status
+        if (selectedLot) {
+          await subscribeToSpaces(selectedLot.id);
+        }
+        setSelectedSpace(null);
+        setBookingLoading(false);
+        return;
+      }
 
       // Create a new booking
       const startTime = new Date().toISOString();
@@ -184,26 +294,23 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
       setSelectedSpace(null);
       setVehicleReg('');
       
-      // Reload spaces to update availability
-      if (selectedLot) {
-        const updatedSpaces = await fetchParkingSpaces(selectedLot.id);
-        setParkingSpaces(updatedSpaces);
-        
-        // Also refresh the lot data to update counts
-        const updatedLot = await getParkingLot(selectedLot.id);
-        if (updatedLot) {
-          setSelectedLot(updatedLot);
-        }
-        
-        // Update the lot in the parkingLots array
-        const updatedLots = await fetchParkingLots();
-        setParkingLots(updatedLots);
-      }
+      // The spaces and lot will automatically update through our real-time subscriptions
     } catch (err) {
       console.error('Error creating booking:', err);
       setError('Failed to create booking. Please try again.');
     } finally {
       setBookingLoading(false);
+    }
+  };
+
+  // Helper function to get the latest status of a space
+  const getLatestSpaceStatus = async (spaceId: string): Promise<ParkingSpace | null> => {
+    try {
+      const spaces = await fetchParkingSpaces(selectedLot!.id);
+      return spaces.find(space => space.id === spaceId) || null;
+    } catch (err) {
+      console.error('Error fetching latest space status:', err);
+      return null;
     }
   };
 
@@ -296,6 +403,15 @@ export default function BookingScreen({ navigation, route }: BookingScreenProps)
               <TouchableOpacity 
                 style={styles.changeLotButton}
                 onPress={() => {
+                  // Clean up space subscriptions first
+                  if (spacesUnsubscribeRef.current) {
+                    spacesUnsubscribeRef.current();
+                    spacesUnsubscribeRef.current = null;
+                  }
+                  if (selectedLotUnsubscribeRef.current) {
+                    selectedLotUnsubscribeRef.current();
+                    selectedLotUnsubscribeRef.current = null;
+                  }
                   setSelectedLot(null);
                   setSelectedSpace(null);
                 }}

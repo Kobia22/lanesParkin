@@ -9,10 +9,9 @@ import {
   ActivityIndicator,
   SafeAreaView,
   RefreshControl,
-  Dimensions
 } from 'react-native';
 import { fetchAnalytics, fetchRecentBookings } from '../../../src/firebase/admin';
-import { fetchParkingLots } from '../../../src/firebase/database';
+import { getAllParkingLots as fetchParkingLots } from '../../../src/api/parkingService';
 import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import type { Analytics, Booking, ParkingLot } from '../../../src/firebase/types';
@@ -169,19 +168,25 @@ export default function AnalyticsScreen() {
       setError(null);
 
       // Fetch analytics data
+      console.log('Fetching analytics data...');
       const analyticsData = await fetchAnalytics();
+      console.log('Analytics data fetched:', analyticsData);
       setAnalytics(analyticsData);
 
       // Fetch recent bookings for charts
+      console.log('Fetching recent bookings...');
       const bookings = await fetchRecentBookings(20);
+      console.log(`Fetched ${bookings.length} recent bookings`);
       setRecentBookings(bookings);
 
-      // Fetch all parking lots
+      // Fetch all parking lots from API
+      console.log('Fetching parking lots for analytics...');
       const parkingLots = await fetchParkingLots();
+      console.log(`Fetched ${parkingLots.length} parking lots for analytics`);
       setLots(parkingLots);
     } catch (err) {
       console.error('Error fetching analytics data:', err);
-      setError('Failed to load analytics data');
+      setError('Failed to load analytics data. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -203,6 +208,7 @@ export default function AnalyticsScreen() {
       return Array(5).fill(50); // Default mock data
     }
 
+    // Get occupancy data from the top 5 lots
     return lots.slice(0, 5).map(lot => lot.occupiedSpaces);
   };
 
@@ -391,23 +397,25 @@ export default function AnalyticsScreen() {
                 <View style={styles.bookingStatus}>
                   <View style={[
                     styles.statusBadge,
-                    booking.status === 'active' && styles.activeBadge,
+                    booking.status === 'pending' && styles.pendingBadge,
+                    booking.status === 'occupied' && styles.activeBadge,
                     booking.status === 'completed' && styles.completedBadge,
                     booking.status === 'cancelled' && styles.cancelledBadge,
-                    booking.status === 'abandoned' && styles.abandonedBadge,
+                    booking.status === 'expired' && styles.abandonedBadge,
                   ]}>
                     <Text style={[
                       styles.statusText,
-                      booking.status === 'active' && styles.activeText,
+                      booking.status === 'pending' && styles.pendingText,
+                      booking.status === 'occupied' && styles.activeText,
                       booking.status === 'completed' && styles.completedText,
                       booking.status === 'cancelled' && styles.cancelledText,
-                      booking.status === 'abandoned' && styles.abandonedText,
+                      booking.status === 'expired' && styles.abandonedText,
                     ]}>
                       {booking.status.toUpperCase()}
                     </Text>
                   </View>
                   <Text style={styles.bookingAmount}>
-                    {formatCurrency(booking.amount || 0)}
+                    {formatCurrency(booking.paymentAmount || 0)}
                   </Text>
                 </View>
               </View>
@@ -625,6 +633,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginBottom: spacing.xs,
   },
+  pendingBadge: {
+    backgroundColor: '#E0F2FE',
+  },
   activeBadge: {
     backgroundColor: '#DCFCE7',
   },
@@ -640,6 +651,9 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: fontSizes.xs,
     fontWeight: 'bold',
+  },
+  pendingText: {
+    color: '#0284C7',
   },
   activeText: {
     color: '#16A34A',

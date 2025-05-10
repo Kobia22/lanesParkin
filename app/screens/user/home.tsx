@@ -1,5 +1,5 @@
-// app/screens/user/home.tsx
-import React, { useEffect, useState } from 'react';
+// app/screens/user/home.tsx - Updated with real-time updates
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -18,6 +18,7 @@ import { User } from '../../../src/firebase/types';
 import type { ParkingLot } from '../../../src/firebase/types';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useTheme } from '../../context/themeContext';
+import parkingUpdateService from '../../../src/firebase/realTimeUpdates';
 
 type UserStackParamList = {
   Home: undefined;
@@ -37,6 +38,8 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Store unsubscribe function
+  const unsubscribeRef = useRef<() => void | null>(null);
 
   const loadUserAndLots = async () => {
     try {
@@ -45,11 +48,23 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
       // Get current user
       const currentUser = await getCurrentUser();
-      setUser(currentUser);
+      setCurrentUser(currentUser);
 
-      // Get parking lots
+      // Initial load of parking lots
       const lots = await fetchParkingLots();
       setParkingLots(lots);
+      
+      // Subscribe to real-time updates for all lots
+      // Clean up any existing subscription first
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+      
+      unsubscribeRef.current = parkingUpdateService.subscribeToAllLots((updatedLots) => {
+        console.log('Real-time parking lots update received:', updatedLots.length);
+        setParkingLots(updatedLots);
+      });
+      
     } catch (err) {
       console.error('Error fetching data:', err);
       setError('Unable to load parking lots. Please try again.');
@@ -61,6 +76,13 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
   useEffect(() => {
     loadUserAndLots();
+    
+    // Clean up subscription when component unmounts
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+    };
   }, []);
 
   const onRefresh = () => {
@@ -172,7 +194,9 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   );
 }
 
+// Styles remain the same
 const styles = StyleSheet.create({
+  // Styles unchanged from original
   container: {
     flex: 1,
   },
