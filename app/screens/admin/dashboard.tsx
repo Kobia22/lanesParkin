@@ -1,4 +1,5 @@
 // app/screens/admin/dashboard.tsx
+// Updated to use simpleParkingAPI through the integration layer
 import React, { useEffect, useState } from 'react';
 import { 
   View, 
@@ -9,7 +10,8 @@ import {
   ActivityIndicator,
   SafeAreaView,
   ScrollView,
-  RefreshControl
+  RefreshControl,
+  Alert
 } from 'react-native';
 import { fetchActiveOrAbandonedBookings } from '../../../src/firebase/admin';
 import { fetchParkingLots } from '../../../src/firebase/database';
@@ -19,6 +21,8 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Booking, ParkingLot, User } from '../../../src/firebase/types';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { initializeDatabase } from '../../../src/api/initializeDatabase';
+import { verifyApiIntegration } from '../../../src/api/verifyApiIntegration';
 
 type AdminStackParamList = {
   AdminDashboard: undefined;
@@ -26,6 +30,7 @@ type AdminStackParamList = {
   ParkingLotAdminPanel: undefined;
   ParkingSpaceAdminPanel: { lotId: string | null };
   AdminProfile: undefined;
+  ParkingManagement: undefined;
 };
 
 type AdminDashboardScreenProps = {
@@ -39,6 +44,7 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const fetchDashboardData = async () => {
     try {
@@ -74,13 +80,83 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
     fetchDashboardData();
   };
 
+  // Function to initialize the database with sample data
+  const handleInitializeDatabase = async () => {
+    if (loading) return;
+    
+    Alert.alert(
+      'Initialize Database',
+      'Are you sure you want to initialize the database with sample data? This should only be done once in development.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Initialize',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              setSuccessMessage(null);
+              setError(null);
+              
+              const success = await initializeDatabase();
+              
+              if (success) {
+                setSuccessMessage('Database initialized successfully');
+                // Reload the dashboard data
+                await fetchDashboardData();
+              } else {
+                setError('Failed to initialize database');
+              }
+            } catch (err) {
+              console.error('Error initializing database:', err);
+              setError('Error initializing database');
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+  
+  // Function to verify API integration
+  const handleVerifyApi = async () => {
+    if (loading) return;
+    
+    try {
+      setLoading(true);
+      setSuccessMessage(null);
+      setError(null);
+      
+      const success = await verifyApiIntegration();
+      
+      if (success) {
+        setSuccessMessage('API integration test successful!');
+      } else {
+        setError('API integration test failed. Check console logs for details.');
+      }
+    } catch (err) {
+      console.error('Error testing API integration:', err);
+      setError('Error testing API integration');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Navigate to parking lots management
+  const handleManageLots = () => {
+    navigation.navigate('ParkingManagement');
+  };
+
   // Calculate dashboard summary
   const calculateSummary = () => {
     const totalSpaces = lots.reduce((sum, lot) => sum + lot.totalSpaces, 0);
     const availableSpaces = lots.reduce((sum, lot) => sum + lot.availableSpaces, 0);
     const occupiedSpaces = lots.reduce((sum, lot) => sum + lot.occupiedSpaces, 0);
     const occupancyRate = totalSpaces > 0 ? Math.round((occupiedSpaces / totalSpaces) * 100) : 0;
-    const activeBookingsCount = bookings.filter(b => b.status === 'active').length;
+    const activeBookingsCount = bookings.filter(b => b.status === 'active' as Booking['status']).length;
     const abandonedBookingsCount = bookings.filter(b => b.status === 'abandoned').length;
     
     return {
@@ -133,6 +209,12 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
             </TouchableOpacity>
           </View>
         )}
+        
+        {successMessage && (
+          <View style={styles.successContainer}>
+            <Text style={styles.successText}>{successMessage}</Text>
+          </View>
+        )}
 
         <View style={styles.summaryContainer}>
           <Text style={styles.sectionTitle}>System Overview</Text>
@@ -165,7 +247,7 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
             <Text style={styles.sectionTitle}>Parking Lots Status</Text>
             <TouchableOpacity 
               style={styles.viewAllButton}
-              onPress={() => navigation.navigate('ParkingLotAdminPanel')}
+              onPress={handleManageLots}
             >
               <Text style={styles.viewAllText}>Manage</Text>
             </TouchableOpacity>
@@ -212,7 +294,7 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
           {lots.length > 3 && (
             <TouchableOpacity 
               style={styles.viewMoreButton}
-              onPress={() => navigation.navigate('ParkingLotAdminPanel')}
+              onPress={handleManageLots}
             >
               <Text style={styles.viewMoreText}>View All {lots.length} Lots</Text>
             </TouchableOpacity>
@@ -228,7 +310,7 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
           </View>
           
           <FlatList
-            data={bookings.filter(b => b.status === 'active').slice(0, 5)}
+            data={bookings.filter(b => b.status === ('active' as Booking['status'])).slice(0, 5)}
             keyExtractor={(item) => item.id}
             scrollEnabled={false}
             renderItem={({ item }) => (
@@ -297,7 +379,7 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
           <View style={styles.quickActionGrid}>
             <TouchableOpacity 
               style={styles.actionCard}
-              onPress={() => navigation.navigate('ParkingLotAdminPanel')}
+              onPress={handleManageLots}
             >
               <Ionicons name="car" size={24} color={colors.primary} />
               <Text style={styles.actionText}>Manage Lots</Text>
@@ -319,9 +401,22 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
               <Text style={styles.actionText}>Analytics</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.actionCard}>
-              <Ionicons name="people" size={24} color={colors.primary} />
-              <Text style={styles.actionText}>Users</Text>
+            <TouchableOpacity 
+              style={styles.actionCard}
+              onPress={handleInitializeDatabase}
+            >
+              <Ionicons name="refresh" size={24} color={colors.primary} />
+              <Text style={styles.actionText}>Init Database</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.quickActionGrid}>
+            <TouchableOpacity 
+              style={styles.actionCard}
+              onPress={handleVerifyApi}
+            >
+              <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
+              <Text style={styles.actionText}>Verify API</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -375,6 +470,17 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#DC2626',
+    marginBottom: spacing.md,
+  },
+  successContainer: {
+    padding: spacing.md,
+    backgroundColor: '#ECFDF5',
+    borderRadius: 10,
+    marginBottom: spacing.md,
+    alignItems: 'center',
+  },
+  successText: {
+    color: '#10B981',
     marginBottom: spacing.md,
   },
   retryButton: {
@@ -591,6 +697,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
+    marginBottom: spacing.md,
   },
   actionCard: {
     width: '48%',

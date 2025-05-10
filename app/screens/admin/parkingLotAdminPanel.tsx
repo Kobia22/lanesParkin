@@ -72,7 +72,16 @@ export default function ParkingLotAdminPanel({ navigation }: ParkingLotAdminPane
       setLoading(true);
       setError(null);
       
+      // Our API function
       const lots = await getAllParkingLots();
+      
+      // In case the API returns null or undefined
+      if (!lots) {
+        setParkingLots([]);
+        setError('No parking lots available');
+        return;
+      }
+      
       setParkingLots(lots);
     } catch (err) {
       console.error('Error fetching parking lots:', err);

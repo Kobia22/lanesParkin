@@ -15,12 +15,18 @@ import {
   KeyboardAvoidingView,
   Platform
 } from 'react-native';
-import { fetchParkingLots, fetchParkingSpaces, addParkingSpace, updateParkingSpace, deleteParkingSpace } from '../../../src/firebase/database';
-import { colors, spacing, fontSizes } from '../../constants/theme';
+import { 
+  getAllParkingLots as fetchParkingLots, 
+  getParkingSpaces as fetchParkingSpaces,
+  createParkingSpace as addParkingSpace, 
+  updateParkingSpace, 
+  deleteParkingSpace 
+} from '../../../src/api/parkingService';import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import type { ParkingLot, ParkingSpace } from '../../../src/firebase/types';
 import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+
 
 type AdminStackParamList = {
   AdminDashboard: undefined;
