@@ -1,7 +1,11 @@
-// src/firebase/types.ts
+// src/firebase/types.ts - Updated with proper Firestore timestamp handling
+import { FieldValue, Timestamp } from 'firebase/firestore';
 
 // User roles
 export type UserRole = 'student' | 'guest' | 'admin' | 'worker';
+
+// Common type for firestore timestamps
+export type FirestoreTimestamp = string | Timestamp | FieldValue;
 
 // User interface
 export interface User {
@@ -9,8 +13,10 @@ export interface User {
   email: string;
   displayName: string;
   role: UserRole;
-  createdAt: string;
-  lastLoginAt: string;
+  createdAt: FirestoreTimestamp;
+  updatedAt?: FirestoreTimestamp;
+  lastLoginAt: FirestoreTimestamp;
+  passwordUpdatedAt?: FirestoreTimestamp;
 }
 
 // Parking lot interface
@@ -22,8 +28,8 @@ export interface ParkingLot {
   availableSpaces: number;
   occupiedSpaces: number;
   bookedSpaces: number;
-  createdAt?: string;
-  updatedAt?: string;
+  createdAt?: FirestoreTimestamp;
+  updatedAt?: FirestoreTimestamp;
 }
 
 // Parking space status
@@ -41,8 +47,8 @@ export interface ParkingSpace {
   currentBookingId: string | null;
   startTime: string | null;
   bookingExpiryTime: string | null;
-  createdAt?: string;
-  updatedAt?: string;
+  createdAt?: FirestoreTimestamp;
+  updatedAt?: FirestoreTimestamp;
 }
 
 // Booking status
@@ -71,8 +77,8 @@ export interface Booking {
   billingRate: number;
   paymentAmount: number;
   paymentStatus: PaymentStatus;
-  createdAt?: string;
-  updatedAt?: string;
+  createdAt?: FirestoreTimestamp;
+  updatedAt?: FirestoreTimestamp;
 }
 
 // Bill interface
@@ -83,8 +89,8 @@ export interface Bill {
   userEmail: string;
   amount: number;
   status: 'pending' | 'paid' | 'refunded';
-  createdAt?: string;
-  paidAt?: string | null;
+  createdAt?: FirestoreTimestamp;
+  paidAt?: FirestoreTimestamp | null;
   dueDate: string;
   description: string;
 }

@@ -6,33 +6,43 @@ import {
   UserCredential,
   EmailAuthProvider,
   reauthenticateWithCredential,
-  updatePassword
+  updatePassword,
+  sendPasswordResetEmail as firebaseSendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebaseConfig';
 import { User, UserRole } from './types';
 
 /**
+ * Determine user role from email domain
+ */
+export function determineUserRole(email: string): UserRole {
+  if (!email || !email.includes('@')) return 'guest';
+  
+  const domain = email.split('@')[1].toLowerCase();
+  
+  if (domain === 'students.jkuat.ac.ke') {
+    return 'student';
+  } else if (domain === 'admin.lanesparking.com') {
+    return 'admin';
+  } else if (domain === 'worker.lanesparking.com') {
+    return 'worker';
+  } else {
+    return 'guest';
+  }
+}
+
+/**
  * Sign up a new user with email and password
  */
-export async function signUp(email: string, password: string, displayName: string, role: UserRole = 'guest'): Promise<User> {
+export async function registerUser(email: string, password: string, displayName: string): Promise<User> {
   try {
     // Create user in Firebase Authentication
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const uid = userCredential.user.uid;
     
-    // Determine role based on email domain if not specified
-    if (!role) {
-      if (email.endsWith('@admin.lanesparking.com')) {
-        role = 'admin';
-      } else if (email.endsWith('@worker.lanesparking.com')) {
-        role = 'worker';
-      } else if (email.endsWith('@students.jkuat.ac.ke')) {
-        role = 'student';
-      } else {
-        role = 'guest';
-      }
-    }
+    // Determine role based on email domain
+    const role = determineUserRole(email);
     
     // Create user document in Firestore
     const userData: Omit<User, 'id'> = {
@@ -40,7 +50,7 @@ export async function signUp(email: string, password: string, displayName: strin
       displayName,
       role,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      lastLoginAt: new Date().toISOString()
     };
     
     await setDoc(doc(db, 'users', uid), userData);
@@ -89,6 +99,18 @@ export async function signIn(email: string, password: string): Promise<User> {
 }
 
 /**
+ * Send password reset email
+ */
+export async function sendPasswordResetEmail(email: string): Promise<void> {
+  try {
+    await firebaseSendPasswordResetEmail(auth, email);
+  } catch (error) {
+    console.error('Error sending password reset email:', error);
+    throw error;
+  }
+}
+
+/**
  * Sign out the current user
  */
 export async function signOut(): Promise<void> {
@@ -122,15 +144,7 @@ export async function getCurrentUser(): Promise<User | null> {
       
       // Determine role based on email domain
       const email = currentUser.email || '';
-      let role: UserRole = 'guest';
-      
-      if (email.endsWith('@admin.lanesparking.com')) {
-        role = 'admin';
-      } else if (email.endsWith('@worker.lanesparking.com')) {
-        role = 'worker';
-      } else if (email.endsWith('@students.jkuat.ac.ke')) {
-        role = 'student';
-      }
+      const role = determineUserRole(email);
       
       console.log(`Determined role from email: ${role}`);
       
@@ -158,27 +172,14 @@ export async function getCurrentUser(): Promise<User | null> {
     const email = userData.email || '';
     
     // Check if role is consistent with email domain
-    if (email.endsWith('@admin.lanesparking.com') && userData.role !== 'admin') {
-      console.log(`Fixing role for admin email: ${email}`);
+    const correctRole = determineUserRole(email);
+    if (userData.role !== correctRole) {
+      console.log(`Fixing role for ${email} from ${userData.role} to ${correctRole}`);
       await updateDoc(doc(db, 'users', currentUser.uid), {
-        role: 'admin',
+        role: correctRole,
         updatedAt: new Date().toISOString()
       });
-      userData.role = 'admin';
-    } else if (email.endsWith('@worker.lanesparking.com') && userData.role !== 'worker') {
-      console.log(`Fixing role for worker email: ${email}`);
-      await updateDoc(doc(db, 'users', currentUser.uid), {
-        role: 'worker',
-        updatedAt: new Date().toISOString()
-      });
-      userData.role = 'worker';
-    } else if (email.endsWith('@students.jkuat.ac.ke') && userData.role !== 'student') {
-      console.log(`Fixing role for student email: ${email}`);
-      await updateDoc(doc(db, 'users', currentUser.uid), {
-        role: 'student',
-        updatedAt: new Date().toISOString()
-      });
-      userData.role = 'student';
+      userData.role = correctRole;
     }
     
     // Update last login timestamp
@@ -259,7 +260,7 @@ export async function changeUserPassword(currentPassword: string, newPassword: s
  */
 export async function createTestAdmin(email: string, password: string): Promise<User> {
   try {
-    return await signUp(email, password, 'Test Admin', 'admin');
+    return await registerUser(email, password, 'Test Admin');
   } catch (error) {
     console.error('Error creating test admin:', error);
     throw error;

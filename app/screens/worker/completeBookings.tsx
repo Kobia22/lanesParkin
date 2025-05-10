@@ -19,7 +19,7 @@ import {
 import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import type { Booking, User } from '../../../src/firebase/types';
-
+import { useTheme } from '../../context/themeContext';
 export default function CompleteBookingsScreen() {
   const [activeBookings, setActiveBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);

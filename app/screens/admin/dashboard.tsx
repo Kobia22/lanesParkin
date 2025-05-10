@@ -1,66 +1,90 @@
 // app/screens/admin/dashboard.tsx
-// Updated to use simpleParkingAPI through the integration layer
-import React, { useEffect, useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  FlatList, 
-  TouchableOpacity, 
-  ActivityIndicator,
-  SafeAreaView,
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
   ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  FlatList,
   RefreshControl,
-  Alert
+  SafeAreaView,
 } from 'react-native';
-import { fetchActiveOrAbandonedBookings, fetchAnalytics } from '../../../src/firebase/admin';
-import { getAllParkingLots as fetchParkingLots } from '../../../src/api/parkingService';
-import { getCurrentUser } from '../../../src/firebase/auth';
 import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
-import type { Booking, ParkingLot, User } from '../../../src/firebase/types';
-import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { initializeDatabase } from '../../../src/api/initializeDatabase';
-import { verifyApiIntegration } from '../../../src/api/verifyApiIntegration';
+import { 
+  fetchParkingLots,
+  fetchAnalytics,
+  fetchActiveOrAbandonedBookings,
+  fetchRecentBookings
+} from '../../../src/api/parkingAPIIntegration';
+import type { 
+  ParkingLot, 
+  Booking, 
+  Analytics,
+} from '../../../src/firebase/types';
+import { useTheme } from '../../context/themeContext';
+import { useNavigation } from '@react-navigation/native';
+import parkingUpdateService from '../../../src/firebase/realtimeUpdates';
 
-type AdminTabParamList = {
-  Dashboard: undefined;
-  Analytics: undefined;
-  ParkingManagement: undefined | { screen: string, params?: any };
-  Profile: undefined;
-};
-
-type AdminDashboardScreenProps = {
-  navigation: BottomTabNavigationProp<AdminTabParamList, 'Dashboard'>;
-};
-
-export default function AdminDashboardScreen({ navigation }: AdminDashboardScreenProps) {
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [lots, setLots] = useState<ParkingLot[]>([]);
-  const [user, setUser] = useState<User | null>(null);
+export default function AdminDashboardScreen() {
+  const { colors, isDarkMode } = useTheme();
+  const navigation = useNavigation();
+  
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [parkingLots, setParkingLots] = useState<ParkingLot[]>([]);
+  const [activeBookings, setActiveBookings] = useState<Booking[]>([]);
+  const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // Store unsubscribe function
+  const lotsUnsubscribeRef = useRef<(() => void) | null>(null);
+  
+  // Load data on component mount
+  useEffect(() => {
+    fetchDashboardData();
 
+    // Set up lot subscription
+    if (lotsUnsubscribeRef.current) {
+      lotsUnsubscribeRef.current();
+    }
+    
+    lotsUnsubscribeRef.current = parkingUpdateService.subscribeToAllLots((updatedLots) => {
+      console.log('Admin dashboard: Real-time parking lots update received:', updatedLots.length);
+      setParkingLots(updatedLots);
+      
+      // Since lots changed, update bookings and analytics too
+      fetchBookingsAndAnalytics();
+    });
+    
+    // Set up interval for periodic data refresh (every 60 seconds)
+    const intervalId = setInterval(() => {
+      fetchBookingsAndAnalytics();
+    }, 60000);
+    
+    // Clean up on unmount
+    return () => {
+      if (lotsUnsubscribeRef.current) {
+        lotsUnsubscribeRef.current();
+      }
+      clearInterval(intervalId);
+    };
+  }, []);
+
+  // Full data fetch
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // Get current user
-      const currentUser = await getCurrentUser();
-      setUser(currentUser);
+      // Fetch parking lots
+      const lots = await fetchParkingLots();
+      setParkingLots(lots);
       
-      // Fetch active or abandoned bookings
-      const activeBookings = await fetchActiveOrAbandonedBookings();
-      setBookings(activeBookings);
-      
-      // Fetch parking lots summary using the API service
-      console.log('Fetching parking lots for dashboard...');
-      const parkingLots = await fetchParkingLots();
-      console.log(`Fetched ${parkingLots.length} parking lots for dashboard`);
-      setLots(parkingLots);
+      await fetchBookingsAndAnalytics();
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
       setError('Failed to load dashboard data. Please try again.');
@@ -69,322 +93,342 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
       setRefreshing(false);
     }
   };
+  
+  // Partial refresh for bookings and analytics
+  const fetchBookingsAndAnalytics = async () => {
+    try {
+      // Fetch analytics first as it's smallest/fastest
+      const analytics = await fetchAnalytics();
+      setAnalytics(analytics);
+      
+      // Fetch active bookings (those that need attention)
+      const active = await fetchActiveOrAbandonedBookings();
+      setActiveBookings(active);
+      
+      // Fetch recent booking history
+      const recent = await fetchRecentBookings(5);
+      setRecentBookings(recent);
+    } catch (err) {
+      console.error('Error updating bookings and analytics:', err);
+    }
+  };
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
+  // Handle refresh
   const onRefresh = () => {
     setRefreshing(true);
     fetchDashboardData();
   };
 
-  // Function to initialize the database with sample data
-  const handleInitializeDatabase = async () => {
-    if (loading) return;
-    
-    Alert.alert(
-      'Initialize Database',
-      'Are you sure you want to initialize the database with sample data? This should only be done once in development.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        },
-        {
-          text: 'Initialize',
-          onPress: async () => {
-            try {
-              setLoading(true);
-              setSuccessMessage(null);
-              setError(null);
-              
-              const success = await initializeDatabase();
-              
-              if (success) {
-                setSuccessMessage('Database initialized successfully');
-                // Reload the dashboard data
-                await fetchDashboardData();
-              } else {
-                setError('Failed to initialize database');
-              }
-            } catch (err) {
-              console.error('Error initializing database:', err);
-              setError('Error initializing database');
-            } finally {
-              setLoading(false);
-            }
-          }
-        }
-      ]
+  // Calculate total occupancy across all lots
+  const calculateTotalOccupancy = () => {
+    const totalSpaces = parkingLots.reduce((total, lot) => total + lot.totalSpaces, 0);
+    const occupiedSpaces = parkingLots.reduce(
+      (total, lot) => total + lot.occupiedSpaces + lot.bookedSpaces, 
+      0
     );
+    
+    if (totalSpaces === 0) return '0%';
+    return `${Math.round((occupiedSpaces / totalSpaces) * 100)}%`;
+  };
+
+  // Format currency as KSH
+  const formatCurrency = (amount: number) => {
+    return `KSH ${amount.toLocaleString()}`;
   };
   
-  // Function to verify API integration
-  const handleVerifyApi = async () => {
-    if (loading) return;
-    
-    try {
-      setLoading(true);
-      setSuccessMessage(null);
-      setError(null);
-      
-      const success = await verifyApiIntegration();
-      
-      if (success) {
-        setSuccessMessage('API integration test successful!');
-      } else {
-        setError('API integration test failed. Check console logs for details.');
-      }
-    } catch (err) {
-      console.error('Error testing API integration:', err);
-      setError('Error testing API integration');
-    } finally {
-      setLoading(false);
-    }
+  // Format date to readable format
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
-
-  // Navigate to parking lots management
-  const handleManageLots = () => {
-    // Navigate directly to the ParkingManagement tab
-    navigation.navigate('ParkingManagement');
-  };
-
-  // Calculate dashboard summary
-  const calculateSummary = () => {
-    const totalSpaces = lots.reduce((sum, lot) => sum + lot.totalSpaces, 0);
-    const availableSpaces = lots.reduce((sum, lot) => sum + lot.availableSpaces, 0);
-    const occupiedSpaces = lots.reduce((sum, lot) => sum + lot.occupiedSpaces, 0);
-    const occupancyRate = totalSpaces > 0 ? Math.round((occupiedSpaces / totalSpaces) * 100) : 0;
-    const activeBookingsCount = bookings.filter(b => b.status === 'occupied').length;
-    const abandonedBookingsCount = bookings.filter(b => b.status === 'expired').length;
-    
-    return {
-      totalSpaces,
-      availableSpaces,
-      occupiedSpaces,
-      occupancyRate,
-      activeBookingsCount,
-      abandonedBookingsCount
-    };
-  };
-
-  const summary = calculateSummary();
 
   if (loading && !refreshing) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading dashboard...</Text>
+        <Text style={[styles.loadingText, { color: colors.textLight }]}>Loading dashboard data...</Text>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Admin Dashboard</Text>
-          <Text style={styles.subtitle}>
-            Welcome, {user?.displayName || 'Administrator'}
-          </Text>
-        </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.primary }]}>
+        <Text style={styles.title}>Admin Dashboard</Text>
+        <Text style={styles.subtitle}>Parking System Overview</Text>
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
             colors={[colors.primary]}
+            tintColor={colors.primary}
           />
         }
       >
         {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={fetchDashboardData}>
+          <View style={[styles.errorContainer, { 
+            backgroundColor: isDarkMode ? 'rgba(220, 38, 38, 0.1)' : '#FEF2F2',
+            margin: spacing.md
+          }]}>
+            <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+            <TouchableOpacity 
+              style={[styles.retryButton, { backgroundColor: colors.primary }]} 
+              onPress={fetchDashboardData}
+            >
               <Text style={styles.retryButtonText}>Retry</Text>
             </TouchableOpacity>
           </View>
         )}
-        
-        {successMessage && (
-          <View style={styles.successContainer}>
-            <Text style={styles.successText}>{successMessage}</Text>
-          </View>
-        )}
 
-        <View style={styles.summaryContainer}>
-          <Text style={styles.sectionTitle}>System Overview</Text>
+        {/* Analytics Cards */}
+        <View style={styles.analyticsContainer}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Overview</Text>
           
-          <View style={styles.statsGrid}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{summary.totalSpaces}</Text>
-              <Text style={styles.statLabel}>Total Spaces</Text>
+          <View style={styles.cardsGrid}>
+            <View style={[styles.analyticsCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+              <View style={[styles.cardIconContainer, { backgroundColor: `${colors.success}20` }]}>
+                <Ionicons name="cash-outline" size={24} color={colors.success} />
+              </View>
+              <Text style={[styles.cardTitle, { color: colors.textLight }]}>Daily Revenue</Text>
+              <Text style={[styles.cardValue, { color: colors.success }]}>
+                {analytics ? formatCurrency(analytics.dailyRevenue) : 'N/A'}
+              </Text>
             </View>
             
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{summary.availableSpaces}</Text>
-              <Text style={styles.statLabel}>Available</Text>
+            <View style={[styles.analyticsCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+              <View style={[styles.cardIconContainer, { backgroundColor: `${colors.primary}20` }]}>
+                <Ionicons name="trending-up-outline" size={24} color={colors.primary} />
+              </View>
+              <Text style={[styles.cardTitle, { color: colors.textLight }]}>Weekly Revenue</Text>
+              <Text style={[styles.cardValue, { color: colors.primary }]}>
+                {analytics ? formatCurrency(analytics.weeklyRevenue) : 'N/A'}
+              </Text>
             </View>
             
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{summary.occupiedSpaces}</Text>
-              <Text style={styles.statLabel}>Occupied</Text>
+            <View style={[styles.analyticsCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+              <View style={[styles.cardIconContainer, { backgroundColor: `${colors.accent}20` }]}>
+                <Ionicons name="car-outline" size={24} color={colors.accent} />
+              </View>
+              <Text style={[styles.cardTitle, { color: colors.textLight }]}>Occupancy Rate</Text>
+              <Text style={[styles.cardValue, { color: colors.accent }]}>
+                {analytics ? `${analytics.occupancyRate.toFixed(1)}%` : calculateTotalOccupancy()}
+              </Text>
             </View>
             
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{summary.occupancyRate}%</Text>
-              <Text style={styles.statLabel}>Occupancy</Text>
+            <View style={[styles.analyticsCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+              <View style={[styles.cardIconContainer, { backgroundColor: `${colors.error}20` }]}>
+                <Ionicons name="alert-circle-outline" size={24} color={colors.error} />
+              </View>
+              <Text style={[styles.cardTitle, { color: colors.textLight }]}>Abandoned</Text>
+              <Text style={[styles.cardValue, { color: colors.error }]}>
+                {analytics ? analytics.abandonedCount : 'N/A'}
+              </Text>
             </View>
           </View>
         </View>
-
-        <View style={styles.lotsContainer}>
+        
+        {/* Parking Lots Status */}
+        <View style={styles.lotsSection}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Parking Lots Status</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Parking Lots</Text>
             <TouchableOpacity 
               style={styles.viewAllButton}
-              onPress={handleManageLots}
+              onPress={() => navigation.navigate('ParkingManagement')}
             >
-              <Text style={styles.viewAllText}>Manage</Text>
+              <Text style={[styles.viewAllText, { color: colors.primary }]}>View All</Text>
             </TouchableOpacity>
           </View>
           
-          <FlatList
-            data={lots.slice(0, 3)} // Show only first 3 lots
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <View style={styles.lotCard}>
-                <View style={styles.lotInfo}>
-                  <Text style={styles.lotName}>{item.name}</Text>
-                  <Text style={styles.lotLocation}>{item.location}</Text>
+          {parkingLots.length === 0 ? (
+            <View style={[styles.emptyState, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+              <Text style={[styles.emptyText, { color: colors.textLight }]}>No parking lots available</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={parkingLots}
+              keyExtractor={(item) => item.id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <View style={[styles.lotCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+                  <Text style={[styles.lotName, { color: colors.text }]}>{item.name}</Text>
+                  <Text style={[styles.lotLocation, { color: colors.textLight }]}>{item.location}</Text>
+                  
+                  <View style={styles.progressBarContainer}>
+                    <View 
+                      style={[
+                        styles.progressBar,
+                        { 
+                          width: `${((item.occupiedSpaces + item.bookedSpaces) / item.totalSpaces) * 100}%`,
+                          backgroundColor: item.availableSpaces === 0 ? colors.error : colors.primary 
+                        }
+                      ]}
+                    />
+                  </View>
+                  
+                  <View style={styles.lotStatsRow}>
+                    <View style={styles.lotStat}>
+                      <Text style={[styles.statNumber, { color: colors.success }]}>{item.availableSpaces}</Text>
+                      <Text style={[styles.statLabel, { color: colors.textLight }]}>Available</Text>
+                    </View>
+                    <View style={styles.lotStat}>
+                      <Text style={[styles.statNumber, { color: colors.error }]}>{item.occupiedSpaces}</Text>
+                      <Text style={[styles.statLabel, { color: colors.textLight }]}>Occupied</Text>
+                    </View>
+                    <View style={styles.lotStat}>
+                      <Text style={[styles.statNumber, { color: colors.accent }]}>{item.bookedSpaces}</Text>
+                      <Text style={[styles.statLabel, { color: colors.textLight }]}>Booked</Text>
+                    </View>
+                  </View>
                 </View>
-                <View style={styles.lotStats}>
-                  <Text style={styles.lotStat}>
-                    {item.availableSpaces}/{item.totalSpaces} spaces available
-                  </Text>
+              )}
+              contentContainerStyle={styles.lotsList}
+            />
+          )}
+        </View>
+        
+        {/* Active Bookings Section */}
+        <View style={styles.bookingsSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Active Bookings</Text>
+            <TouchableOpacity style={styles.viewAllButton}>
+              <Text style={[styles.viewAllText, { color: colors.primary }]}>View All</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {activeBookings.length === 0 ? (
+            <View style={[styles.emptyState, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+              <Text style={[styles.emptyText, { color: colors.textLight }]}>No active bookings</Text>
+            </View>
+          ) : (
+            activeBookings.slice(0, 3).map((booking) => (
+              <View 
+                key={booking.id} 
+                style={[styles.bookingCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}
+              >
+                <View style={styles.bookingHeader}>
+                  <View>
+                    <Text style={[styles.bookingId, { color: colors.textLight }]}>ID: {booking.id.substring(0, 8)}...</Text>
+                    <Text style={[styles.bookingLot, { color: colors.text }]}>
+                      {booking.lotName} - Space #{booking.spaceNumber}
+                    </Text>
+                  </View>
                   <View style={[
-                    styles.lotStatusBadge,
-                    item.availableSpaces === 0 
-                      ? styles.lotFullBadge 
-                      : item.availableSpaces < item.totalSpaces / 4 
-                        ? styles.lotLimitedBadge 
-                        : styles.lotAvailableBadge
+                    styles.statusBadge,
+                    { 
+                      backgroundColor: booking.status === 'occupied' ? 
+                        `${colors.success}20` : 
+                        `${colors.accent}20` 
+                    }
                   ]}>
-                    <Text style={styles.lotStatusText}>
-                      {item.availableSpaces === 0 
-                        ? 'FULL' 
-                        : item.availableSpaces < item.totalSpaces / 4 
-                          ? 'LIMITED' 
-                          : 'AVAILABLE'}
+                    <Text style={[
+                      styles.statusText,
+                      { 
+                        color: booking.status === 'occupied' ? 
+                          colors.success : 
+                          colors.accent 
+                      }
+                    ]}>
+                      {booking.status.toUpperCase()}
                     </Text>
                   </View>
                 </View>
+                
+                <View style={styles.bookingDetails}>
+                  <View style={styles.bookingDetail}>
+                    <Ionicons name="person-outline" size={16} color={colors.textLight} />
+                    <Text style={[styles.detailText, { color: colors.text }]}>{booking.userEmail}</Text>
+                  </View>
+                  
+                  <View style={styles.bookingDetail}>
+                    <Ionicons name="car-outline" size={16} color={colors.textLight} />
+                    <Text style={[styles.detailText, { color: colors.text }]}>{booking.vehicleInfo || 'N/A'}</Text>
+                  </View>
+                  
+                  <View style={styles.bookingDetail}>
+                    <Ionicons name="time-outline" size={16} color={colors.textLight} />
+                    <Text style={[styles.detailText, { color: colors.text }]}>Started: {formatDate(booking.startTime)}</Text>
+                  </View>
+                </View>
               </View>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No parking lots available</Text>
-            }
-          />
+            ))
+          )}
           
-          {lots.length > 3 && (
-            <TouchableOpacity 
-              style={styles.viewMoreButton}
-              onPress={handleManageLots}
-            >
-              <Text style={styles.viewMoreText}>View All {lots.length} Lots</Text>
+          {activeBookings.length > 3 && (
+            <TouchableOpacity style={[styles.moreButton, { borderColor: colors.borderColor }]}>
+              <Text style={[styles.moreButtonText, { color: colors.primary }]}>
+                View {activeBookings.length - 3} more active bookings
+              </Text>
             </TouchableOpacity>
           )}
         </View>
-
-        <View style={styles.bookingsContainer}>
+        
+        {/* Recent Bookings Section */}
+        <View style={[styles.bookingsSection, { paddingBottom: spacing.xl }]}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Active Bookings</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent Bookings</Text>
             <TouchableOpacity style={styles.viewAllButton}>
-              <Text style={styles.viewAllText}>View All</Text>
+              <Text style={[styles.viewAllText, { color: colors.primary }]}>View All</Text>
             </TouchableOpacity>
           </View>
           
-          <FlatList
-            data={bookings.filter(b => b.status === 'occupied').slice(0, 5)}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <View style={styles.bookingCard}>
-                <View style={styles.bookingInfo}>
-                  <Text style={styles.bookingId}>ID: {item.id.substring(0, 8)}...</Text>
-                  <Text style={styles.bookingDetails}>
-                    Lot: {item.lotName} | Space: {item.spaceNumber}
-                  </Text>
-                  <Text style={styles.bookingTime}>
-                    Started: {new Date(item.startTime).toLocaleString()}
-                  </Text>
-                </View>
-                <View style={styles.bookingStatus}>
-                  <View style={styles.statusBadge}>
-                    <Text style={styles.statusText}>ACTIVE</Text>
-                  </View>
-                </View>
+          {recentBookings.length === 0 ? (
+            <View style={[styles.emptyState, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+              <Text style={[styles.emptyText, { color: colors.textLight }]}>No recent bookings</Text>
+            </View>
+          ) : (
+            <View style={[styles.recentBookingsCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+              <View style={[styles.tableHeader, { borderBottomColor: colors.borderColor }]}>
+                <Text style={[styles.tableHeaderText, { color: colors.textLight, flex: 1.5 }]}>User</Text>
+                <Text style={[styles.tableHeaderText, { color: colors.textLight, flex: 1 }]}>Space</Text>
+                <Text style={[styles.tableHeaderText, { color: colors.textLight, flex: 1 }]}>Status</Text>
+                <Text style={[styles.tableHeaderText, { color: colors.textLight, flex: 1.5 }]}>Time</Text>
               </View>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No active bookings</Text>
-            }
-          />
-        </View>
-
-        <View style={styles.abandonedContainer}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Expired Bookings</Text>
-            <TouchableOpacity style={styles.viewAllButton}>
-              <Text style={styles.viewAllText}>View All</Text>
-            </TouchableOpacity>
-          </View>
-          
-          <FlatList
-            data={bookings.filter(b => b.status === 'expired').slice(0, 3)}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <View style={styles.bookingCard}>
-                <View style={styles.bookingInfo}>
-                  <Text style={styles.bookingId}>ID: {item.id.substring(0, 8)}...</Text>
-                  <Text style={styles.bookingDetails}>
-                    Lot: {item.lotName} | Space: {item.spaceNumber}
+              
+              {recentBookings.map((booking) => (
+                <View 
+                  key={booking.id}
+                  style={[styles.tableRow, { borderBottomColor: colors.borderColor }]}
+                >
+                  <Text 
+                    style={[styles.tableCell, { color: colors.text, flex: 1.5 }]} 
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {booking.userEmail.split('@')[0]}
                   </Text>
-                  <Text style={styles.bookingTime}>
-                    Started: {new Date(item.startTime).toLocaleString()}
+                  <Text style={[styles.tableCell, { color: colors.text, flex: 1 }]}>
+                    #{booking.spaceNumber}
+                  </Text>
+                  <Text 
+                    style={[
+                      styles.tableCell, 
+                      { flex: 1 },
+                      { 
+                        color: 
+                          booking.status === 'completed' ? colors.success :
+                          booking.status === 'cancelled' || booking.status === 'expired' ? colors.error :
+                          colors.accent
+                      }
+                    ]}
+                  >
+                    {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                  </Text>
+                  <Text style={[styles.tableCell, { color: colors.text, flex: 1.5 }]}>
+                    {formatDate(booking.startTime)}
                   </Text>
                 </View>
-                <View style={styles.bookingStatus}>
-                  <View style={[styles.statusBadge, styles.abandonedBadge]}>
-                    <Text style={styles.abandonedText}>EXPIRED</Text>
-                  </View>
-                </View>
-              </View>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No expired bookings</Text>
-            }
-          />
-        </View>
-
-        <View style={styles.quickActionContainer}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          
-          <View style={styles.quickActionGrid}>
-            <TouchableOpacity 
-              style={styles.actionCard}
-              onPress={handleVerifyApi}
-            >
-              <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
-              <Text style={styles.actionText}>Verify API</Text>
-            </TouchableOpacity>
-          </View>
+              ))}
+            </View>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -395,10 +439,8 @@ export default function AdminDashboardScreen({ navigation }: AdminDashboardScree
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   header: {
-    backgroundColor: colors.primary,
     paddingTop: 60,
     paddingBottom: spacing.md,
     paddingHorizontal: spacing.lg,
@@ -413,45 +455,24 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     opacity: 0.9,
   },
-  content: {
-    padding: spacing.md,
-    paddingBottom: spacing.xl * 2,
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.background,
   },
   loadingText: {
     marginTop: spacing.md,
     fontSize: fontSizes.md,
-    color: colors.textLight,
   },
   errorContainer: {
     padding: spacing.md,
-    backgroundColor: '#FEF2F2',
     borderRadius: 10,
-    marginBottom: spacing.md,
     alignItems: 'center',
   },
   errorText: {
-    color: '#DC2626',
-    marginBottom: spacing.md,
-  },
-  successContainer: {
-    padding: spacing.md,
-    backgroundColor: '#ECFDF5',
-    borderRadius: 10,
-    marginBottom: spacing.md,
-    alignItems: 'center',
-  },
-  successText: {
-    color: '#10B981',
     marginBottom: spacing.md,
   },
   retryButton: {
-    backgroundColor: colors.primary,
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
     borderRadius: 5,
@@ -460,48 +481,21 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
   },
-  summaryContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 10,
+  analyticsContainer: {
     padding: spacing.md,
-    marginBottom: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
   },
   sectionTitle: {
     fontSize: fontSizes.lg,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.md,
   },
-  statsGrid: {
+  cardsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
-  statCard: {
+  analyticsCard: {
     width: '48%',
-    backgroundColor: '#F9FAFB',
-    padding: spacing.md,
-    borderRadius: 8,
-    marginBottom: spacing.md,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: fontSizes.xl,
-    fontWeight: 'bold',
-    color: colors.primary,
-    marginBottom: spacing.xs,
-  },
-  statLabel: {
-    fontSize: fontSizes.sm,
-    color: colors.textLight,
-  },
-  lotsContainer: {
-    backgroundColor: colors.cardBackground,
     borderRadius: 10,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -510,6 +504,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
+  },
+  cardIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  cardTitle: {
+    fontSize: fontSizes.sm,
+    marginBottom: spacing.xs,
+  },
+  cardValue: {
+    fontSize: fontSizes.lg,
+    fontWeight: 'bold',
+  },
+  lotsSection: {
+    padding: spacing.md,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -521,169 +534,154 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
   },
   viewAllText: {
-    color: colors.primary,
+    fontSize: fontSizes.md,
     fontWeight: '500',
   },
-  lotCard: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+  lotsList: {
+    paddingBottom: spacing.xs,
   },
-  lotInfo: {
-    marginBottom: spacing.xs,
+  lotCard: {
+    borderRadius: 10,
+    padding: spacing.md,
+    marginRight: spacing.md,
+    width: 250,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   lotName: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.text,
+    marginBottom: spacing.xs / 2,
   },
   lotLocation: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
+    marginBottom: spacing.md,
   },
-  lotStats: {
+  progressBarContainer: {
+    height: 8,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 4,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  lotStatsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: spacing.xs,
   },
   lotStat: {
-    fontSize: fontSizes.sm,
-    color: colors.text,
-  },
-  lotStatusBadge: {
-    paddingVertical: spacing.xs / 2,
-    paddingHorizontal: spacing.sm,
-    borderRadius: 20,
-  },
-  lotAvailableBadge: {
-    backgroundColor: '#DCFCE7',
-  },
-  lotLimitedBadge: {
-    backgroundColor: '#FEF3C7',
-  },
-  lotFullBadge: {
-    backgroundColor: '#FEE2E2',
-  },
-  lotStatusText: {
-    fontSize: fontSizes.xs,
-    fontWeight: 'bold',
-  },
-  viewMoreButton: {
-    padding: spacing.md,
     alignItems: 'center',
   },
-  viewMoreText: {
-    color: colors.primary,
-    fontWeight: '500',
+  statNumber: {
+    fontSize: fontSizes.md,
+    fontWeight: 'bold',
   },
-  bookingsContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 10,
+  statLabel: {
+    fontSize: fontSizes.xs,
+  },
+  bookingsSection: {
     padding: spacing.md,
+  },
+  emptyState: {
+    padding: spacing.lg,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: fontSizes.md,
+  },
+  bookingCard: {
+    borderRadius: 10,
     marginBottom: spacing.md,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
+    overflow: 'hidden',
   },
-  bookingCard: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+  bookingHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  bookingInfo: {
-    flex: 1,
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
   bookingId: {
-    fontSize: fontSizes.sm,
-    fontWeight: 'bold',
-    color: colors.text,
-    marginBottom: spacing.xs,
-  },
-  bookingDetails: {
-    fontSize: fontSizes.sm,
-    color: colors.textLight,
-    marginBottom: spacing.xs,
-  },
-  bookingTime: {
     fontSize: fontSizes.xs,
-    color: colors.textLight,
+    marginBottom: spacing.xs / 2,
   },
-  bookingStatus: {
-    marginLeft: spacing.md,
+  bookingLot: {
+    fontSize: fontSizes.md,
+    fontWeight: 'bold',
   },
   statusBadge: {
-    backgroundColor: '#DCFCE7',
     paddingVertical: spacing.xs / 2,
     paddingHorizontal: spacing.sm,
     borderRadius: 20,
-  },
-  abandonedBadge: {
-    backgroundColor: '#FEF3C7',
   },
   statusText: {
     fontSize: fontSizes.xs,
     fontWeight: 'bold',
-    color: '#16A34A',
   },
-  abandonedText: {
-    fontSize: fontSizes.xs,
-    fontWeight: 'bold',
-    color: '#D97706',
-  },
-  abandonedContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 10,
+  bookingDetails: {
     padding: spacing.md,
-    marginBottom: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
   },
-  quickActionContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 10,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  quickActionGrid: {
+  bookingDetail: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  actionCard: {
-    width: '48%',
-    backgroundColor: '#F9FAFB',
-    padding: spacing.md,
-    borderRadius: 8,
-    marginBottom: spacing.md,
     alignItems: 'center',
+    marginBottom: spacing.sm,
   },
-  actionText: {
+  detailText: {
     fontSize: fontSizes.sm,
-    color: colors.text,
+    marginLeft: spacing.sm,
+  },
+  moreButton: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: spacing.md,
+    alignItems: 'center',
     marginTop: spacing.xs,
+  },
+  moreButtonText: {
+    fontSize: fontSizes.md,
     fontWeight: '500',
   },
-  emptyText: {
-    color: colors.textLight,
-    textAlign: 'center',
-    padding: spacing.md,
+  recentBookingsCard: {
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+    overflow: 'hidden',
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+  },
+  tableHeaderText: {
+    fontSize: fontSizes.sm,
+    fontWeight: 'bold',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+  },
+  tableCell: {
+    fontSize: fontSizes.sm,
+    paddingVertical: spacing.xs,
   },
 });
-            

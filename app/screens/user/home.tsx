@@ -18,7 +18,7 @@ import { User } from '../../../src/firebase/types';
 import type { ParkingLot } from '../../../src/firebase/types';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useTheme } from '../../context/themeContext';
-import parkingUpdateService from '../../../src/firebase/realTimeUpdates';
+import parkingUpdateService from '../../../src/firebase/realtimeUpdates';
 
 type UserStackParamList = {
   Home: undefined;
@@ -41,38 +41,38 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   // Store unsubscribe function
   const unsubscribeRef = useRef<() => void | null>(null);
 
-  const loadUserAndLots = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+const loadUserAndLots = async () => {
+  try {
+    setLoading(true);
+    setError(null);
 
-      // Get current user
-      const currentUser = await getCurrentUser();
-      setCurrentUser(currentUser);
+    // Get current user
+    const currentUser = await getCurrentUser();
+    setUser(currentUser);  // Changed from setCurrentUser to setUser
 
-      // Initial load of parking lots
-      const lots = await fetchParkingLots();
-      setParkingLots(lots);
-      
-      // Subscribe to real-time updates for all lots
-      // Clean up any existing subscription first
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-      }
-      
-      unsubscribeRef.current = parkingUpdateService.subscribeToAllLots((updatedLots) => {
-        console.log('Real-time parking lots update received:', updatedLots.length);
-        setParkingLots(updatedLots);
-      });
-      
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      setError('Unable to load parking lots. Please try again.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+    // Initial load of parking lots
+    const lots = await fetchParkingLots();
+    setParkingLots(lots);
+    
+    // Subscribe to real-time updates for all lots
+    // Clean up any existing subscription first
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
     }
-  };
+    
+    unsubscribeRef.current = parkingUpdateService.subscribeToAllLots((updatedLots) => {
+      console.log('Real-time parking lots update received:', updatedLots.length);
+      setParkingLots(updatedLots);
+    });
+    
+  } catch (err) {
+    console.error('Error fetching data:', err);
+    setError('Unable to load parking lots. Please try again.');
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+};
 
   useEffect(() => {
     loadUserAndLots();

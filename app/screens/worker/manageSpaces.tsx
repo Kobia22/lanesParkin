@@ -1,5 +1,5 @@
 // app/screens/worker/manageSpaces.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,10 +20,14 @@ import {
   fetchParkingLots, 
   fetchParkingSpaces, 
   updateParkingSpaceStatus 
-} from '../../../src/firebase/database';
+} from '../../../src/api/parkingAPIIntegration';
 import type { ParkingLot, ParkingSpace, ParkingSpaceStatus } from '../../../src/firebase/types';
+import { useTheme } from '../../context/themeContext';
+// Import the real-time updates service
+import parkingUpdateService from '../../../src/firebase/realtimeUpdates';
 
 export default function ManageSpacesScreen() {
+  const { colors, isDarkMode } = useTheme();
   const [lots, setLots] = useState<ParkingLot[]>([]);
   const [selectedLot, setSelectedLot] = useState<ParkingLot | null>(null);
   const [spaces, setSpaces] = useState<ParkingSpace[]>([]);
@@ -37,13 +41,27 @@ export default function ManageSpacesScreen() {
   const [userEmail, setUserEmail] = useState('');
   const [vehicleInfo, setVehicleInfo] = useState('');
   const [updatingStatus, setUpdatingStatus] = useState(false);
-
+  
   // Filter options
   const [statusFilter, setStatusFilter] = useState<ParkingSpaceStatus | 'all'>('all');
+  
+  // Store unsubscribe functions
+  const lotsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const spacesUnsubscribeRef = useRef<(() => void) | null>(null);
   
   // Load data on component mount
   useEffect(() => {
     loadParkingLots();
+
+    // Clean up subscriptions when component unmounts
+    return () => {
+      if (lotsUnsubscribeRef.current) {
+        lotsUnsubscribeRef.current();
+      }
+      if (spacesUnsubscribeRef.current) {
+        spacesUnsubscribeRef.current();
+      }
+    };
   }, []);
   
   // Apply filters when search text or status filter changes
@@ -60,13 +78,32 @@ export default function ManageSpacesScreen() {
       const fetchedLots = await fetchParkingLots();
       setLots(fetchedLots);
       
+      // Subscribe to real-time updates for all lots
+      if (lotsUnsubscribeRef.current) {
+        lotsUnsubscribeRef.current();
+      }
+      
+      lotsUnsubscribeRef.current = parkingUpdateService.subscribeToAllLots((updatedLots) => {
+        console.log('Manage Spaces: Real-time parking lots update received:', updatedLots.length);
+        setLots(updatedLots);
+        
+        // If we have a selected lot, update it too
+        if (selectedLot) {
+          const updatedSelectedLot = updatedLots.find(lot => lot.id === selectedLot.id);
+          if (updatedSelectedLot && JSON.stringify(updatedSelectedLot) !== JSON.stringify(selectedLot)) {
+            console.log(`Auto-updating selected lot ${selectedLot.id} with new data`);
+            setSelectedLot(updatedSelectedLot);
+          }
+        }
+      });
+      
       // If no lot is selected and we have lots, select the first one
       if (!selectedLot && fetchedLots.length > 0) {
         setSelectedLot(fetchedLots[0]);
-        await loadParkingSpaces(fetchedLots[0].id);
+        await subscribeToSpaces(fetchedLots[0].id);
       } else if (selectedLot) {
         // If a lot is already selected, reload its spaces
-        await loadParkingSpaces(selectedLot.id);
+        await subscribeToSpaces(selectedLot.id);
       }
     } catch (err) {
       console.error('Error fetching parking lots:', err);
@@ -77,22 +114,33 @@ export default function ManageSpacesScreen() {
     }
   };
 
-  // Function to load spaces for a specific lot
-  const loadParkingSpaces = async (lotId: string) => {
+  // Function to subscribe to spaces for a lot
+  const subscribeToSpaces = async (lotId: string) => {
     try {
-      setLoading(true);
-      setError(null);
-      
+      // First, get initial data
       const fetchedSpaces = await fetchParkingSpaces(lotId);
       // Sort spaces by number
       fetchedSpaces.sort((a, b) => a.number - b.number);
       setSpaces(fetchedSpaces);
       setFilteredSpaces(fetchedSpaces);
+      
+      // Then subscribe to updates
+      if (spacesUnsubscribeRef.current) {
+        spacesUnsubscribeRef.current();
+      }
+      
+      spacesUnsubscribeRef.current = parkingUpdateService.subscribeToSpaces(lotId, (updatedSpaces) => {
+        console.log(`Manage Spaces: Real-time spaces update for lot ${lotId}:`, updatedSpaces.length);
+        
+        // Sort spaces by number
+        updatedSpaces.sort((a, b) => a.number - b.number);
+        setSpaces(updatedSpaces);
+        
+        // Will trigger the useEffect to apply filters
+      });
     } catch (err) {
-      console.error('Error fetching parking spaces:', err);
+      console.error('Error subscribing to parking spaces:', err);
       setError('Failed to load parking spaces');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -121,16 +169,17 @@ export default function ManageSpacesScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     if (selectedLot) {
-      await loadParkingSpaces(selectedLot.id);
+      await subscribeToSpaces(selectedLot.id);
     } else {
       await loadParkingLots();
     }
+    setRefreshing(false);
   };
 
   // Handle lot selection
   const handleLotSelect = (lot: ParkingLot) => {
     setSelectedLot(lot);
-    loadParkingSpaces(lot.id);
+    subscribeToSpaces(lot.id);
     // Reset filters
     setSearchText('');
     setStatusFilter('all');
@@ -163,44 +212,9 @@ export default function ManageSpacesScreen() {
       
       await updateParkingSpaceStatus(selectedSpace.id, status, userData);
       
-      // Update the local state
-      const updatedSpace = {
-        ...selectedSpace,
-        status,
-        userEmail: status === 'vacant' ? null : userEmail,
-        vehicleInfo: status === 'vacant' ? null : vehicleInfo,
-        startTime: status === 'vacant' ? null : new Date().toISOString()
-      };
-      
-      setSpaces(prev => 
-        prev.map(space => space.id === selectedSpace.id ? updatedSpace : space)
-      );
-      
-      // Update the selected lot's statistics
-      if (selectedLot) {
-        const oldStatus = selectedSpace.status;
-        let lotUpdate = { ...selectedLot };
-        
-        // Remove from old status count
-        if (oldStatus === 'vacant') lotUpdate.availableSpaces--;
-        else if (oldStatus === 'occupied') lotUpdate.occupiedSpaces--;
-        else if (oldStatus === 'booked') lotUpdate.bookedSpaces--;
-        
-        // Add to new status count
-        if (status === 'vacant') lotUpdate.availableSpaces++;
-        else if (status === 'occupied') lotUpdate.occupiedSpaces++;
-        else if (status === 'booked') lotUpdate.bookedSpaces++;
-        
-        setSelectedLot(lotUpdate);
-        
-        // Update the lot in the lots list
-        setLots(prev => 
-          prev.map(lot => lot.id === selectedLot.id ? lotUpdate : lot)
-        );
-      }
-      
-      Alert.alert('Success', `Space #${selectedSpace.number} status updated to ${status}`);
       setModalVisible(false);
+      
+      // The real-time updates will refresh the spaces and lots automatically
     } catch (err) {
       console.error('Error updating space status:', err);
       Alert.alert('Error', 'Failed to update space status');
@@ -240,32 +254,40 @@ export default function ManageSpacesScreen() {
 
   if (loading && !refreshing) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading parking spaces...</Text>
+        <Text style={[styles.loadingText, { color: colors.textLight }]}>Loading parking spaces...</Text>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <Text style={styles.title}>Manage Parking Spaces</Text>
       </View>
       
       <View style={styles.content}>
         {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
+          <View style={[styles.errorContainer, { 
+            backgroundColor: isDarkMode ? 'rgba(220, 38, 38, 0.1)' : '#FEF2F2'
+          }]}>
+            <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+            <TouchableOpacity 
+              style={[styles.retryButton, { backgroundColor: colors.primary }]} 
+              onPress={loadParkingLots}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
           </View>
         )}
         
         <View style={styles.lotSelectionContainer}>
-          <Text style={styles.sectionTitle}>Select a Parking Lot</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Select a Parking Lot</Text>
           
           {lots.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No parking lots available</Text>
+              <Text style={[styles.emptyText, { color: colors.textLight }]}>No parking lots available</Text>
             </View>
           ) : (
             <ScrollView 
@@ -278,13 +300,18 @@ export default function ManageSpacesScreen() {
                   key={lot.id}
                   style={[
                     styles.lotButton,
-                    selectedLot?.id === lot.id && styles.selectedLotButton
+                    { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground },
+                    selectedLot?.id === lot.id && [
+                      styles.selectedLotButton,
+                      { backgroundColor: colors.primary }
+                    ]
                   ]}
                   onPress={() => handleLotSelect(lot)}
                 >
                   <Text 
                     style={[
                       styles.lotButtonText,
+                      { color: colors.text },
                       selectedLot?.id === lot.id && styles.selectedLotButtonText
                     ]}
                   >
@@ -295,7 +322,7 @@ export default function ManageSpacesScreen() {
                       <Ionicons name="checkmark-circle" size={12} color={selectedLot?.id === lot.id ? '#FFFFFF' : colors.success} />
                       <Text style={[
                         styles.lotStatText,
-                        selectedLot?.id === lot.id && styles.selectedLotButtonText
+                        { color: selectedLot?.id === lot.id ? '#FFFFFF' : colors.text },
                       ]}>
                         {lot.availableSpaces}
                       </Text>
@@ -304,7 +331,7 @@ export default function ManageSpacesScreen() {
                       <Ionicons name="close-circle" size={12} color={selectedLot?.id === lot.id ? '#FFFFFF' : colors.error} />
                       <Text style={[
                         styles.lotStatText,
-                        selectedLot?.id === lot.id && styles.selectedLotButtonText
+                        { color: selectedLot?.id === lot.id ? '#FFFFFF' : colors.text },
                       ]}>
                         {lot.occupiedSpaces}
                       </Text>
@@ -313,7 +340,7 @@ export default function ManageSpacesScreen() {
                       <Ionicons name="time" size={12} color={selectedLot?.id === lot.id ? '#FFFFFF' : colors.accent} />
                       <Text style={[
                         styles.lotStatText,
-                        selectedLot?.id === lot.id && styles.selectedLotButtonText
+                        { color: selectedLot?.id === lot.id ? '#FFFFFF' : colors.text },
                       ]}>
                         {lot.bookedSpaces}
                       </Text>
@@ -328,11 +355,12 @@ export default function ManageSpacesScreen() {
         {selectedLot && (
           <>
             <View style={styles.filterContainer}>
-              <View style={styles.searchContainer}>
+              <View style={[styles.searchContainer, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
                 <Ionicons name="search" size={20} color={colors.textLight} style={styles.searchIcon} />
                 <TextInput
-                  style={styles.searchInput}
+                  style={[styles.searchInput, { color: colors.text }]}
                   placeholder="Search space #, user or vehicle"
+                  placeholderTextColor={colors.textLight}
                   value={searchText}
                   onChangeText={setSearchText}
                 />
@@ -350,13 +378,18 @@ export default function ManageSpacesScreen() {
                 <TouchableOpacity
                   style={[
                     styles.filterButton,
-                    statusFilter === 'all' && styles.activeFilterButton
+                    { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#F3F4F6' },
+                    statusFilter === 'all' && [
+                      styles.activeFilterButton,
+                      { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.15)' : '#E5E7EB' }
+                    ]
                   ]}
                   onPress={() => setStatusFilter('all')}
                 >
                   <Text style={[
                     styles.filterButtonText,
-                    statusFilter === 'all' && styles.activeFilterButtonText
+                    { color: colors.textLight },
+                    statusFilter === 'all' && { color: colors.text }
                   ]}>
                     All
                   </Text>
@@ -365,13 +398,17 @@ export default function ManageSpacesScreen() {
                 <TouchableOpacity
                   style={[
                     styles.filterButton,
-                    statusFilter === 'vacant' && styles.activeFilterButton,
-                    statusFilter === 'vacant' && { backgroundColor: `${colors.success}20` }
+                    { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#F3F4F6' },
+                    statusFilter === 'vacant' && [
+                      styles.activeFilterButton,
+                      { backgroundColor: `${colors.success}20` }
+                    ]
                   ]}
                   onPress={() => setStatusFilter('vacant')}
                 >
                   <Text style={[
                     styles.filterButtonText,
+                    { color: colors.textLight },
                     statusFilter === 'vacant' && { color: colors.success }
                   ]}>
                     Vacant
@@ -381,13 +418,17 @@ export default function ManageSpacesScreen() {
                 <TouchableOpacity
                   style={[
                     styles.filterButton,
-                    statusFilter === 'occupied' && styles.activeFilterButton,
-                    statusFilter === 'occupied' && { backgroundColor: `${colors.error}20` }
+                    { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#F3F4F6' },
+                    statusFilter === 'occupied' && [
+                      styles.activeFilterButton,
+                      { backgroundColor: `${colors.error}20` }
+                    ]
                   ]}
                   onPress={() => setStatusFilter('occupied')}
                 >
                   <Text style={[
                     styles.filterButtonText,
+                    { color: colors.textLight },
                     statusFilter === 'occupied' && { color: colors.error }
                   ]}>
                     Occupied
@@ -397,13 +438,17 @@ export default function ManageSpacesScreen() {
                 <TouchableOpacity
                   style={[
                     styles.filterButton,
-                    statusFilter === 'booked' && styles.activeFilterButton,
-                    statusFilter === 'booked' && { backgroundColor: `${colors.accent}20` }
+                    { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#F3F4F6' },
+                    statusFilter === 'booked' && [
+                      styles.activeFilterButton,
+                      { backgroundColor: `${colors.accent}20` }
+                    ]
                   ]}
                   onPress={() => setStatusFilter('booked')}
                 >
                   <Text style={[
                     styles.filterButtonText,
+                    { color: colors.textLight },
                     statusFilter === 'booked' && { color: colors.accent }
                   ]}>
                     Booked
@@ -412,12 +457,12 @@ export default function ManageSpacesScreen() {
               </View>
             </View>
             
-            <View style={styles.spacesContainer}>
+            <View style={[styles.spacesContainer, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
               <View style={styles.spacesHeader}>
-                <Text style={styles.spacesTitle}>
+                <Text style={[styles.spacesTitle, { color: colors.text }]}>
                   {selectedLot.name} Spaces ({filteredSpaces.length} of {spaces.length})
                 </Text>
-                <Text style={styles.spacesSubtitle}>
+                <Text style={[styles.spacesSubtitle, { color: colors.textLight }]}>
                   Tap a space to update its status
                 </Text>
               </View>
@@ -427,32 +472,32 @@ export default function ManageSpacesScreen() {
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                   <TouchableOpacity 
-                    style={styles.spaceCard}
+                    style={[styles.spaceCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#F9FAFB' }]}
                     onPress={() => handleChangeStatus(item)}
                   >
                     <View style={styles.spaceCardHeader}>
-                      <Text style={styles.spaceNumber}>Space #{item.number}</Text>
+                      <Text style={[styles.spaceNumber, { color: colors.text }]}>Space #{item.number}</Text>
                       {renderStatusBadge(item.status)}
                     </View>
                     
                     {item.userEmail && (
                       <View style={styles.userInfo}>
                         <Ionicons name="person-outline" size={14} color={colors.textLight} />
-                        <Text style={styles.userInfoText}>{item.userEmail}</Text>
+                        <Text style={[styles.userInfoText, { color: colors.text }]}>{item.userEmail}</Text>
                       </View>
                     )}
                     
                     {item.vehicleInfo && (
                       <View style={styles.userInfo}>
                         <Ionicons name="car-outline" size={14} color={colors.textLight} />
-                        <Text style={styles.userInfoText}>{item.vehicleInfo}</Text>
+                        <Text style={[styles.userInfoText, { color: colors.text }]}>{item.vehicleInfo}</Text>
                       </View>
                     )}
                     
                     {item.startTime && item.status !== 'vacant' && (
                       <View style={styles.userInfo}>
                         <Ionicons name="time-outline" size={14} color={colors.textLight} />
-                        <Text style={styles.userInfoText}>
+                        <Text style={[styles.userInfoText, { color: colors.text }]}>
                           Since: {new Date(item.startTime).toLocaleString()}
                         </Text>
                       </View>
@@ -468,12 +513,13 @@ export default function ManageSpacesScreen() {
                     refreshing={refreshing}
                     onRefresh={onRefresh}
                     colors={[colors.primary]}
+                    tintColor={colors.primary}
                   />
                 }
                 ListEmptyComponent={
                   <View style={styles.emptyContainer}>
                     <Ionicons name="car-outline" size={48} color={colors.textLight} />
-                    <Text style={styles.emptyText}>No spaces match your filters</Text>
+                    <Text style={[styles.emptyText, { color: colors.textLight }]}>No spaces match your filters</Text>
                   </View>
                 }
                 contentContainerStyle={
@@ -493,9 +539,9 @@ export default function ManageSpacesScreen() {
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
+          <View style={[styles.modalContainer, { backgroundColor: isDarkMode ? '#1F2937' : colors.cardBackground }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: isDarkMode ? '#374151' : '#E5E7EB' }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
                 Update Space #{selectedSpace?.number} Status
               </Text>
               <TouchableOpacity
@@ -507,12 +553,12 @@ export default function ManageSpacesScreen() {
             </View>
             
             <View style={styles.modalContent}>
-              <Text style={styles.modalLabel}>Current Status:</Text>
+              <Text style={[styles.modalLabel, { color: colors.text }]}>Current Status:</Text>
               <View style={styles.currentStatusContainer}>
                 {selectedSpace && renderStatusBadge(selectedSpace.status)}
               </View>
               
-              <Text style={styles.modalLabel}>Set New Status:</Text>
+              <Text style={[styles.modalLabel, { color: colors.text }]}>Set New Status:</Text>
               <View style={styles.statusButtonsContainer}>
                 <TouchableOpacity
                   style={[
@@ -557,16 +603,24 @@ export default function ManageSpacesScreen() {
                 </TouchableOpacity>
               </View>
               
-              <Text style={styles.modalLabel}>User Information:</Text>
-              <Text style={styles.modalSubLabel}>
+              <Text style={[styles.modalLabel, { color: colors.text }]}>User Information:</Text>
+              <Text style={[styles.modalSubLabel, { color: colors.textLight }]}>
                 (Required for occupied or booked status)
               </Text>
               
               <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>User Email</Text>
+                <Text style={[styles.inputLabel, { color: colors.text }]}>User Email</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input, 
+                    { 
+                      borderColor: isDarkMode ? '#374151' : '#E2E8F0',
+                      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
+                      color: colors.text 
+                    }
+                  ]}
                   placeholder="Enter user email"
+                  placeholderTextColor={colors.textLight}
                   value={userEmail}
                   onChangeText={setUserEmail}
                   autoCapitalize="none"
@@ -575,10 +629,18 @@ export default function ManageSpacesScreen() {
               </View>
               
               <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Vehicle Information</Text>
+                <Text style={[styles.inputLabel, { color: colors.text }]}>Vehicle Information</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input, 
+                    { 
+                      borderColor: isDarkMode ? '#374151' : '#E2E8F0',
+                      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
+                      color: colors.text 
+                    }
+                  ]}
                   placeholder="e.g., License Plate, Model, Color"
+                  placeholderTextColor={colors.textLight}
                   value={vehicleInfo}
                   onChangeText={setVehicleInfo}
                 />
@@ -586,9 +648,9 @@ export default function ManageSpacesScreen() {
             </View>
             
             {updatingStatus && (
-              <View style={styles.loadingOverlay}>
+              <View style={[styles.loadingOverlay, { backgroundColor: isDarkMode ? 'rgba(31, 41, 55, 0.8)' : 'rgba(255, 255, 255, 0.8)' }]}>
                 <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={styles.loadingText}>Updating status...</Text>
+                <Text style={[styles.loadingText, { color: colors.text }]}>Updating status...</Text>
               </View>
             )}
           </View>
@@ -601,10 +663,8 @@ export default function ManageSpacesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   header: {
-    backgroundColor: colors.primary,
     paddingTop: 60,
     paddingBottom: spacing.md,
     paddingHorizontal: spacing.lg,
@@ -622,21 +682,28 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.background,
   },
   loadingText: {
     marginTop: spacing.md,
     fontSize: fontSizes.md,
-    color: colors.textLight,
   },
   errorContainer: {
-    backgroundColor: '#FEF2F2',
-    borderRadius: 8,
     padding: spacing.md,
+    borderRadius: 8,
     marginBottom: spacing.md,
+    alignItems: 'center',
   },
   errorText: {
-    color: colors.error,
+    marginBottom: spacing.md,
+  },
+  retryButton: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: 5,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
   },
   lotSelectionContainer: {
     marginBottom: spacing.md,
@@ -644,14 +711,12 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: fontSizes.lg,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.sm,
   },
   lotsList: {
     paddingBottom: spacing.xs,
   },
   lotButton: {
-    backgroundColor: colors.cardBackground,
     borderRadius: 8,
     padding: spacing.md,
     marginRight: spacing.md,
@@ -668,7 +733,6 @@ const styles = StyleSheet.create({
   lotButtonText: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.xs,
   },
   selectedLotButtonText: {
@@ -684,7 +748,6 @@ const styles = StyleSheet.create({
   },
   lotStatText: {
     fontSize: fontSizes.xs,
-    color: colors.textLight,
     marginLeft: 2,
   },
   emptyContainer: {
@@ -696,7 +759,6 @@ const styles = StyleSheet.create({
   emptyText: {
     marginTop: spacing.md,
     fontSize: fontSizes.md,
-    color: colors.textLight,
     textAlign: 'center',
   },
   filterContainer: {
@@ -705,7 +767,6 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.cardBackground,
     borderRadius: 8,
     paddingHorizontal: spacing.sm,
     marginBottom: spacing.sm,
@@ -732,22 +793,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 2,
     borderRadius: 4,
-    backgroundColor: '#F3F4F6',
   },
   activeFilterButton: {
-    backgroundColor: '#E5E7EB',
   },
   filterButtonText: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
-  },
-  activeFilterButtonText: {
-    color: colors.text,
-    fontWeight: '500',
   },
   spacesContainer: {
     flex: 1,
-    backgroundColor: colors.cardBackground,
     borderRadius: 10,
     padding: spacing.md,
     shadowColor: '#000',
@@ -762,17 +815,14 @@ const styles = StyleSheet.create({
   spacesTitle: {
     fontSize: fontSizes.lg,
     fontWeight: 'bold',
-    color: colors.text,
   },
   spacesSubtitle: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
   },
   spacesList: {
     paddingBottom: spacing.md,
   },
   spaceCard: {
-    backgroundColor: '#F9FAFB',
     borderRadius: 8,
     padding: spacing.md,
     marginBottom: spacing.sm,
@@ -787,7 +837,6 @@ const styles = StyleSheet.create({
   spaceNumber: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.text,
   },
   statusBadge: {
     paddingVertical: spacing.xs / 2,
@@ -805,7 +854,6 @@ const styles = StyleSheet.create({
   },
   userInfoText: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
     marginLeft: spacing.xs,
     flex: 1,
   },
@@ -822,7 +870,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContainer: {
-    backgroundColor: colors.cardBackground,
     borderRadius: 12,
     width: '90%',
     maxWidth: 400,
@@ -838,13 +885,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
     padding: spacing.md,
   },
   modalTitle: {
     fontSize: fontSizes.lg,
     fontWeight: 'bold',
-    color: colors.text,
     flex: 1,
   },
   closeButton: {
@@ -856,12 +901,10 @@ const styles = StyleSheet.create({
   modalLabel: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.xs,
   },
   modalSubLabel: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
     marginBottom: spacing.sm,
   },
   currentStatusContainer: {
@@ -890,21 +933,17 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: fontSizes.sm,
-    color: colors.text,
     marginBottom: spacing.xs,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E2E8F0',
     borderRadius: 8,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     fontSize: fontSizes.md,
-    backgroundColor: '#F9FAFB',
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 12,

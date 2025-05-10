@@ -1,5 +1,5 @@
-// app/screens/user/history.tsx
-import React, { useState, useEffect } from 'react';
+// app/screens/user/history.tsx - Updated with real-time updates
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,12 +11,18 @@ import {
   SafeAreaView,
   RefreshControl,
 } from 'react-native';
-import { getUserBookings, updateBookingStatus, getParkingLot } from '../../../src/firebase/database';
+import { 
+  getUserBookings, 
+  updateBookingStatus, 
+  getParkingLot 
+} from '../../../src/api/parkingAPIIntegration';
 import { getCurrentUser } from '../../../src/firebase/auth';
 import { spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
-import type { Booking, ParkingLot } from '../../../src/firebase/types';
+import type { Booking, ParkingLot, User } from '../../../src/firebase/types';
 import { useTheme } from '../../context/themeContext';
+// Import the real-time updates service
+import parkingUpdateService from '../../../src/firebase/realtimeUpdates';
 
 export default function HistoryScreen() {
   const { colors, isDarkMode } = useTheme();
@@ -24,18 +30,62 @@ export default function HistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Store unsubscribe function
+  const bookingsUnsubscribeRef = useRef<(() => void) | null>(null);
 
-  const fetchBookings = async () => {
+  // Load bookings on component mount
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        setError(null);
+        setLoading(true);
+
+        const user = await getCurrentUser();
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+        
+        setCurrentUser(user);
+        await fetchBookings(user.id);
+        
+        // Subscribe to real-time updates for user's bookings
+        if (bookingsUnsubscribeRef.current) {
+          bookingsUnsubscribeRef.current();
+        }
+        
+        bookingsUnsubscribeRef.current = parkingUpdateService.subscribeToUserActiveBookings(
+          user.id,
+          async (updatedBookings) => {
+            console.log('History screen: Real-time bookings update received:', updatedBookings.length);
+            // Refresh all bookings to ensure we have the complete history
+            await fetchBookings(user.id);
+          }
+        );
+      } catch (err) {
+        console.error('Error fetching initial booking data:', err);
+        setError('Failed to load your booking history');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchInitialData();
+    
+    // Clean up subscription when component unmounts
+    return () => {
+      if (bookingsUnsubscribeRef.current) {
+        bookingsUnsubscribeRef.current();
+      }
+    };
+  }, []);
+
+  // Fetch bookings with lot names
+  const fetchBookings = async (userId: string) => {
     try {
       setError(null);
-      setLoading(true);
-
-      const currentUser = await getCurrentUser();
-      if (!currentUser) {
-        throw new Error('User not authenticated');
-      }
-
-      let userBookings = await getUserBookings(currentUser.id);
+      
+      let userBookings = await getUserBookings(userId);
       
       // Fetch lot details for each booking
       const bookingsWithLotNames = await Promise.all(
@@ -44,12 +94,12 @@ export default function HistoryScreen() {
             const lot = await getParkingLot(booking.lotId);
             return {
               ...booking,
-              lotName: lot?.name || 'Unknown Lot',
+              lotName: lot?.name || booking.lotName || 'Unknown Lot',
             };
           } catch (err) {
             return {
               ...booking,
-              lotName: 'Unknown Lot',
+              lotName: booking.lotName || 'Unknown Lot',
             };
           }
         })
@@ -60,20 +110,21 @@ export default function HistoryScreen() {
       console.error('Error fetching bookings:', err);
       setError('Failed to load your booking history');
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    fetchBookings();
-  }, []);
-
-  const onRefresh = () => {
+  // Handle refresh
+  const onRefresh = async () => {
     setRefreshing(true);
-    fetchBookings();
+    if (currentUser) {
+      await fetchBookings(currentUser.id);
+    } else {
+      setRefreshing(false);
+    }
   };
 
+  // Handle booking cancellation
   const handleCancelBooking = (bookingId: string) => {
     Alert.alert(
       'Cancel Booking',
@@ -89,7 +140,12 @@ export default function HistoryScreen() {
             try {
               setLoading(true);
               await updateBookingStatus(bookingId, 'cancelled', new Date().toISOString());
-              fetchBookings();
+              
+              // The real-time updates will refresh the bookings
+              // We can also manually refresh for immediate feedback
+              if (currentUser) {
+                await fetchBookings(currentUser.id);
+              }
             } catch (err) {
               console.error('Error cancelling booking:', err);
               Alert.alert('Error', 'Failed to cancel booking');
@@ -114,7 +170,9 @@ export default function HistoryScreen() {
   };
 
   // Calculate duration between two dates in hours and minutes
-  const calculateDuration = (startTime: string, endTime: string) => {
+  const calculateDuration = (startTime: string, endTime: string | null) => {
+    if (!endTime) return 'Ongoing';
+    
     const start = new Date(startTime);
     const end = new Date(endTime);
     const diffMs = end.getTime() - start.getTime();
@@ -124,12 +182,30 @@ export default function HistoryScreen() {
     return `${diffHrs}h ${diffMins}m`;
   };
 
+  // Get payment status text
+  const getPaymentStatusText = (booking: Booking) => {
+    if (booking.status === 'completed' && booking.paymentStatus === 'paid') {
+      return `Paid: KSH ${booking.paymentAmount}`;
+    } else if (booking.status === 'pending' || booking.status === 'occupied') {
+      return 'Payment pending';
+    } else if (booking.status === 'cancelled' || booking.status === 'expired') {
+      return 'No charge';
+    } else {
+      return booking.paymentStatus;
+    }
+  };
+
   // Render different status badges
   const renderStatusBadge = (status: Booking['status']) => {
     let badgeStyle, textStyle, statusText;
     
     switch (status) {
-      case 'active' as Booking['status']:
+      case 'pending':
+        badgeStyle = [styles.pendingBadge, isDarkMode ? { backgroundColor: 'rgba(251, 191, 36, 0.2)' } : null];
+        textStyle = [styles.pendingBadgeText, { color: isDarkMode ? '#fbbf24' : '#B45309' }];
+        statusText = 'Pending';
+        break;
+      case 'occupied':
         badgeStyle = [styles.activeBadge, isDarkMode ? { backgroundColor: 'rgba(34, 197, 94, 0.2)' } : null];
         textStyle = [styles.activeBadgeText, { color: colors.success }];
         statusText = 'Active';
@@ -143,6 +219,11 @@ export default function HistoryScreen() {
         badgeStyle = [styles.cancelledBadge, isDarkMode ? { backgroundColor: 'rgba(220, 38, 38, 0.2)' } : null];
         textStyle = [styles.cancelledBadgeText, { color: colors.error }];
         statusText = 'Cancelled';
+        break;
+      case 'expired':
+        badgeStyle = [styles.expiredBadge, isDarkMode ? { backgroundColor: 'rgba(217, 119, 6, 0.2)' } : null];
+        textStyle = [styles.expiredBadgeText, { color: isDarkMode ? '#fb923c' : '#D97706' }];
+        statusText = 'Expired';
         break;
       case 'abandoned':
         badgeStyle = [styles.abandonedBadge, isDarkMode ? { backgroundColor: 'rgba(217, 119, 6, 0.2)' } : null];
@@ -184,7 +265,7 @@ export default function HistoryScreen() {
           <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
           <TouchableOpacity 
             style={[styles.retryButton, { backgroundColor: colors.primary }]} 
-            onPress={fetchBookings}
+            onPress={() => currentUser && fetchBookings(currentUser.id)}
           >
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
@@ -218,7 +299,9 @@ export default function HistoryScreen() {
                 
                 <View style={styles.detailItem}>
                   <Text style={[styles.detailLabel, { color: colors.textLight }]}>End Time</Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>{item.endTime ? formatDate(item.endTime) : 'N/A'}</Text>
+                  <Text style={[styles.detailValue, { color: colors.text }]}>
+                    {item.endTime ? formatDate(item.endTime) : 'N/A'}
+                  </Text>
                 </View>
               </View>
               
@@ -226,7 +309,7 @@ export default function HistoryScreen() {
                 <View style={styles.detailItem}>
                   <Text style={[styles.detailLabel, { color: colors.textLight }]}>Duration</Text>
                   <Text style={[styles.detailValue, { color: colors.text }]}>
-                    {item.startTime && item.endTime ? calculateDuration(item.startTime, item.endTime) : 'N/A'}
+                    {calculateDuration(item.startTime, item.endTime)}
                   </Text>
                 </View>
                 
@@ -238,7 +321,13 @@ export default function HistoryScreen() {
                 </View>
               </View>
               
-              {item.status === ('active' as Booking['status']) && (
+              <View style={styles.paymentContainer}>
+                <Text style={[styles.paymentText, { color: colors.text }]}>
+                  {getPaymentStatusText(item)}
+                </Text>
+              </View>
+              
+              {item.status === 'pending' && (
                 <TouchableOpacity
                   style={[
                     styles.cancelButton, 
@@ -340,6 +429,7 @@ const styles = StyleSheet.create({
   bookingTitle: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
+    flex: 1,
   },
   statusBadge: {
     paddingVertical: spacing.xs / 2,
@@ -349,6 +439,12 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: fontSizes.sm,
     fontWeight: '500',
+  },
+  pendingBadge: {
+    backgroundColor: '#FEF3C7',
+  },
+  pendingBadgeText: {
+    color: '#B45309',
   },
   activeBadge: {
     backgroundColor: '#DCFCE7',
@@ -367,6 +463,12 @@ const styles = StyleSheet.create({
   },
   cancelledBadgeText: {
     color: '#DC2626',
+  },
+  expiredBadge: {
+    backgroundColor: '#FEF3C7',
+  },
+  expiredBadgeText: {
+    color: '#D97706',
   },
   abandonedBadge: {
     backgroundColor: '#FEF3C7',
@@ -396,6 +498,17 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs / 2,
   },
   detailValue: {
+    fontSize: fontSizes.md,
+    fontWeight: '500',
+  },
+  paymentContainer: {
+    marginBottom: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 5,
+  },
+  paymentText: {
     fontSize: fontSizes.md,
     fontWeight: '500',
   },

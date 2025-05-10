@@ -26,7 +26,7 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { RouteProp } from '@react-navigation/native';
 import type { ParkingLot, ParkingSpace, User } from '../../../src/firebase/types';
 import { useTheme } from '../../context/themeContext';
-import parkingUpdateService from '../../../src/firebase/realTimeUpdates';
+import parkingUpdateService from '../../../src/firebase/realtimeUpdates';
 
 type UserStackParamList = {
   Home: undefined;

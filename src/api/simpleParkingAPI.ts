@@ -1,4 +1,4 @@
-// src/api/simpleParkingAPI.ts
+// src/api/simpleParkingAPI.ts - Optimized version using proper indexes
 import { db } from '../firebase/firebaseConfig';
 import { 
   collection, 
@@ -150,6 +150,7 @@ class SimpleParkingAPI {
    */
   async getParkingSpaces(lotId: string): Promise<ParkingSpace[]> {
     try {
+      // Now using orderBy with a simple index
       const spacesQuery = query(
         collection(db, 'parkingSpaces'),
         where('lotId', '==', lotId),
@@ -626,6 +627,7 @@ class SimpleParkingAPI {
    */
   async getActiveBookings(userId: string): Promise<Booking[]> {
     try {
+      // Now using composite index
       const bookingsQuery = query(
         collection(db, 'bookings'),
         where('userId', '==', userId),
@@ -655,6 +657,7 @@ class SimpleParkingAPI {
    */
   async getAllUserBookings(userId: string): Promise<Booking[]> {
     try {
+      // Now using composite index
       const bookingsQuery = query(
         collection(db, 'bookings'),
         where('userId', '==', userId),
@@ -680,6 +683,7 @@ class SimpleParkingAPI {
 
   /**
    * Get pending bookings (for worker interface)
+   * Now using proper composite index
    */
   async getPendingBookings(): Promise<Booking[]> {
     try {
@@ -711,7 +715,13 @@ class SimpleParkingAPI {
    */
   async getAllBookings(): Promise<Booking[]> {
     try {
-      const bookingsSnapshot = await getDocs(collection(db, 'bookings'));
+      // Using orderBy now that we have indexes
+      const bookingsQuery = query(
+        collection(db, 'bookings'),
+        orderBy('startTime', 'desc')
+      );
+      
+      const bookingsSnapshot = await getDocs(bookingsQuery);
       const bookings: Booking[] = [];
       
       bookingsSnapshot.forEach(doc => {
@@ -730,6 +740,7 @@ class SimpleParkingAPI {
 
   /**
    * Get bookings with any status (for admin operations)
+   * Using proper composite index
    */
   async getParkingBookings(status?: BookingStatus): Promise<Booking[]> {
     try {
@@ -806,6 +817,7 @@ class SimpleParkingAPI {
    */
   async getUserBills(userId: string): Promise<Bill[]> {
     try {
+      // Now using proper composite index
       const billsQuery = query(
         collection(db, 'bills'),
         where('userId', '==', userId),
@@ -831,7 +843,6 @@ class SimpleParkingAPI {
   
   /**
    * Get analytics data for admin dashboard
-   * For simplicity, we're using mock data right now
    */
   async getAnalytics(): Promise<Analytics> {
     try {

@@ -1,5 +1,5 @@
 // app/screens/auth/login.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -27,6 +27,15 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+
+  // Check for failed attempts to show forgot password
+  useEffect(() => {
+    if (failedAttempts >= 3) {
+      setShowForgotPassword(true);
+    }
+  }, [failedAttempts]);
 
   // Handle the login process
   const handleLogin = async () => {
@@ -45,9 +54,15 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       // This will work for all user types (admin, worker, student, guest)
       await signIn(email, password);
       
+      // Reset failed attempts on successful login
+      setFailedAttempts(0);
+      
       // Auth state changes will be caught by the App component
     } catch (error: any) {
       console.error('Login error:', error);
+      
+      // Increment failed attempts
+      setFailedAttempts(prev => prev + 1);
       
       // Handle specific firebase error codes
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
@@ -62,6 +77,11 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Navigate to password reset screen
+  const handleForgotPassword = () => {
+    navigation.navigate('ResetPassword', { email });
   };
 
   return (
@@ -121,6 +141,15 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
               <Text style={styles.loginButtonText}>Login</Text>
             )}
           </TouchableOpacity>
+          
+          {showForgotPassword && (
+            <TouchableOpacity 
+              style={styles.forgotPasswordButton} 
+              onPress={handleForgotPassword}
+            >
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
+          )}
           
           <View style={styles.registerContainer}>
             <Text style={styles.registerText}>Don't have an account? </Text>
@@ -230,6 +259,15 @@ const styles = StyleSheet.create({
   loginButtonText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
+    fontSize: fontSizes.md,
+  },
+  forgotPasswordButton: {
+    padding: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  forgotPasswordText: {
+    color: colors.primary,
     fontSize: fontSizes.md,
   },
   registerContainer: {

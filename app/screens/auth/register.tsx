@@ -12,11 +12,12 @@ import {
   TextInput,
   ScrollView
 } from 'react-native';
-import { registerUser, determineUserRole } from '../../../src/firebase/auth';
+import { registerUser } from '../../../src/firebase/auth';
 import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { AuthStackParamList } from '../navigators/authNavigator';
+import { UserRole } from '../../../src/firebase/types';
 
 type RegisterScreenProps = {
   navigation: StackNavigationProp<AuthStackParamList, 'Register'>;
@@ -29,17 +30,32 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [userRole, setUserRole] = useState<'student' | 'guest'>('guest');
+  const [userRole, setUserRole] = useState<UserRole>('guest');
 
   // Update role based on email
   useEffect(() => {
     if (email) {
       const role = determineUserRole(email);
-      if (role === 'student' || role === 'guest') {
-        setUserRole(role);
-      }
+      setUserRole(role);
     }
   }, [email]);
+
+  // Determine user role from email domain
+  const determineUserRole = (email: string): UserRole => {
+    if (!email || !email.includes('@')) return 'guest';
+    
+    const domain = email.split('@')[1].toLowerCase();
+    
+    if (domain === 'students.jkuat.ac.ke') {
+      return 'student';
+    } else if (domain === 'admin.lanesparking.com') {
+      return 'admin';
+    } else if (domain === 'worker.lanesparking.com') {
+      return 'worker';
+    } else {
+      return 'guest';
+    }
+  };
 
   const handleRegister = async () => {
     try {
@@ -63,13 +79,16 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
       setError(null);
       setLoading(true);
       
-      // Register the user with username
+      // Determine role from email before registration
+      const role = determineUserRole(email);
+      
+      // Register the user with username and determined role
       await registerUser(email, password, username);
       
-      // Show success message
+      // Show success message with correct role
       Alert.alert(
         'Registration Successful',
-        `Your account has been created successfully as a ${userRole}.`,
+        `Your account has been created successfully as a ${role}.`,
         [
           { text: 'Login Now', onPress: () => navigation.navigate('Login') }
         ]
@@ -92,6 +111,39 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
     }
   };
 
+  // Get the appropriate styles and text based on user role
+  const getRoleSpecificStyles = () => {
+    let containerStyle;
+    let roleText;
+    let tipText;
+
+    switch (userRole) {
+      case 'student':
+        containerStyle = styles.studentRole;
+        roleText = 'Student Registration';
+        tipText = 'Use your @students.jkuat.ac.ke email';
+        break;
+      case 'admin':
+        containerStyle = styles.adminRole;
+        roleText = 'Admin Registration';
+        tipText = 'Use your @admin.lanesparking.com email';
+        break;
+      case 'worker':
+        containerStyle = styles.workerRole;
+        roleText = 'Worker Registration';
+        tipText = 'Use your @worker.lanesparking.com email';
+        break;
+      default:
+        containerStyle = styles.guestRole;
+        roleText = 'Guest Registration';
+        tipText = 'Use any email for guest access';
+    }
+
+    return { containerStyle, roleText, tipText };
+  };
+
+  const { containerStyle, roleText, tipText } = getRoleSpecificStyles();
+
   return (
     <KeyboardAvoidingView 
       style={styles.container}
@@ -107,18 +159,9 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
         </View>
         
         <View style={styles.formContainer}>
-          <View style={[
-            styles.roleInfo, 
-            userRole === 'student' ? styles.studentRole : styles.guestRole
-          ]}>
-            <Text style={styles.roleInfoText}>
-              {userRole === 'student' ? 'Student Registration' : 'Guest Registration'}
-            </Text>
-            <Text style={styles.roleTip}>
-              {userRole === 'student' 
-                ? 'Use your @students.jkuat.ac.ke email' 
-                : 'Use any email for guest access'}
-            </Text>
+          <View style={[styles.roleInfo, containerStyle]}>
+            <Text style={styles.roleInfoText}>{roleText}</Text>
+            <Text style={styles.roleTip}>{tipText}</Text>
           </View>
           
           {error && (
@@ -255,12 +298,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   studentRole: {
-    backgroundColor: colors.studentHighlight,
-    borderColor: colors.accent,
+    backgroundColor: '#E8F5E9', // Light green
+    borderColor: '#4CAF50',
+    borderWidth: 1,
+  },
+  adminRole: {
+    backgroundColor: '#E3F2FD', // Light blue
+    borderColor: '#2196F3',
+    borderWidth: 1,
+  },
+  workerRole: {
+    backgroundColor: '#FFF3E0', // Light orange
+    borderColor: '#FF9800',
     borderWidth: 1,
   },
   guestRole: {
-    backgroundColor: colors.guestHighlight,
+    backgroundColor: '#F3E5F5', // Light purple
     borderColor: colors.primary,
     borderWidth: 1,
   },

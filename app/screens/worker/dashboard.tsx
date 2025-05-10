@@ -12,35 +12,68 @@ import {
 } from 'react-native';
 import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchParkingLots, getOccupiedSpaces } from '../../../src/firebase/database';
+import { fetchParkingLots, getPendingBookings } from '../../../src/api/parkingAPIIntegration';
 import { getCurrentUser } from '../../../src/firebase/auth';
-import type { ParkingLot, ParkingSpace, User } from '../../../src/firebase/types';
+import type { ParkingLot, ParkingSpace, User, Booking } from '../../../src/firebase/types';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { WorkerTabParamList } from '../navigators/workerNavigator';
 // Import the real-time updates service
 import parkingUpdateService from '../../../src/firebase/realtimeUpdates';
+import { useTheme } from '../../context/themeContext';
 
 type WorkerNavigationProp = BottomTabNavigationProp<WorkerTabParamList>;
 
 export default function WorkerDashboardScreen() {
   const navigation = useNavigation<WorkerNavigationProp>();
+  const { colors, isDarkMode } = useTheme();
   const [user, setUser] = useState<User | null>(null);
   const [lots, setLots] = useState<ParkingLot[]>([]);
-  const [occupiedSpaces, setOccupiedSpaces] = useState<ParkingSpace[]>([]);
+  const [pendingBookings, setPendingBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Store unsubscribe function
-  const unsubscribeRef = useRef<(() => void) | null>(null);
   
-  // Pending bookings count (would come from database in real app)
-  const pendingBookingsCount = 3;
+  // Store unsubscribe functions
+  const lotsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const bookingsUnsubscribeRef = useRef<(() => void) | null>(null);
   
-  // Active bookings count (would come from database in real app)
-  const activeBookingsCount = 25;
-
   // Load data on component mount
+  useEffect(() => {
+    loadData();
+
+    // Set up lot subscription
+    if (lotsUnsubscribeRef.current) {
+      lotsUnsubscribeRef.current();
+    }
+    
+    lotsUnsubscribeRef.current = parkingUpdateService.subscribeToAllLots((updatedLots) => {
+      console.log('Worker dashboard: Real-time parking lots update received:', updatedLots.length);
+      setLots(updatedLots);
+    });
+    
+    // Set up pending bookings subscription
+    if (bookingsUnsubscribeRef.current) {
+      bookingsUnsubscribeRef.current();
+    }
+    
+    bookingsUnsubscribeRef.current = parkingUpdateService.subscribeToPendingBookings((bookings) => {
+      console.log('Worker dashboard: Real-time pending bookings update received:', bookings.length);
+      setPendingBookings(bookings);
+    });
+    
+    // Clean up on unmount
+    return () => {
+      if (lotsUnsubscribeRef.current) {
+        lotsUnsubscribeRef.current();
+      }
+      if (bookingsUnsubscribeRef.current) {
+        bookingsUnsubscribeRef.current();
+      }
+    };
+  }, []);
+
+  // Load data
   const loadData = async () => {
     try {
       setLoading(true);
@@ -54,21 +87,9 @@ export default function WorkerDashboardScreen() {
       const parkingLots = await fetchParkingLots();
       setLots(parkingLots);
       
-      // Subscribe to real-time updates for all lots
-      // Clean up any existing subscription first
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-      }
-      
-      unsubscribeRef.current = parkingUpdateService.subscribeToAllLots((updatedLots) => {
-        console.log('Worker dashboard: Real-time parking lots update received:', updatedLots.length);
-        setLots(updatedLots);
-      });
-      
-      // For demonstration purposes, we'll use mock data
-      // In a real app, we'd call getOccupiedSpaces()
-      setOccupiedSpaces([]);
-      
+      // Initial fetch of pending bookings
+      const bookings = await getPendingBookings();
+      setPendingBookings(bookings);
     } catch (err) {
       console.error('Error loading data:', err);
       setError('Failed to load data. Please try again.');
@@ -78,16 +99,6 @@ export default function WorkerDashboardScreen() {
     }
   };
 
-  useEffect(() => {
-    loadData();
-    
-    // Clean up on unmount
-    return () => {
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-      }
-    };
-  }, []);
 
   // Handle pull-to-refresh
   const onRefresh = () => {
@@ -120,16 +131,16 @@ export default function WorkerDashboardScreen() {
 
   if (loading && !refreshing) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading dashboard...</Text>
+        <Text style={[styles.loadingText, { color: colors.textLight }]}>Loading dashboard...</Text>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.primary }]}>
         <Text style={styles.title}>Worker Dashboard</Text>
         <Text style={styles.subtitle}>
           Welcome, {user?.displayName || 'Worker'}
@@ -143,128 +154,132 @@ export default function WorkerDashboardScreen() {
             refreshing={refreshing}
             onRefresh={onRefresh}
             colors={[colors.primary]}
+            tintColor={colors.primary}
           />
         }
       >
         {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={loadData}>
+          <View style={[styles.errorContainer, { 
+            backgroundColor: isDarkMode ? 'rgba(220, 38, 38, 0.1)' : '#FEF2F2'
+          }]}>
+            <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+            <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.primary }]} onPress={loadData}>
               <Text style={styles.retryButtonText}>Retry</Text>
             </TouchableOpacity>
           </View>
         )}
 
         <View style={styles.quickActionsContainer}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Quick Actions</Text>
           
           <View style={styles.actionsGrid}>
             <TouchableOpacity 
-              style={styles.actionCard}
+              style={[styles.actionCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}
               onPress={() => navigation.navigate('ManageBookings')}
             >
               <View style={[styles.actionIconContainer, { backgroundColor: '#E0F2F1' }]}>
                 <Ionicons name="log-in" size={24} color="#00897B" />
-                {pendingBookingsCount > 0 && (
+                {pendingBookings.length > 0 && (
                   <View style={styles.badgeContainer}>
-                    <Text style={styles.badgeText}>{pendingBookingsCount}</Text>
+                    <Text style={styles.badgeText}>{pendingBookings.length}</Text>
                   </View>
                 )}
               </View>
-              <Text style={styles.actionTitle}>Check In</Text>
-              <Text style={styles.actionDescription}>
+              <Text style={[styles.actionTitle, { color: colors.text }]}>Check In</Text>
+              <Text style={[styles.actionDescription, { color: colors.textLight }]}>
                 Process arrivals and bookings
               </Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={styles.actionCard}
+              style={[styles.actionCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}
               onPress={() => navigation.navigate('CompleteBookings')}
             >
               <View style={[styles.actionIconContainer, { backgroundColor: '#E8F5E9' }]}>
                 <Ionicons name="log-out" size={24} color="#43A047" />
-                {activeBookingsCount > 0 && (
-                  <View style={styles.badgeContainer}>
-                    <Text style={styles.badgeText}>{activeBookingsCount}</Text>
-                  </View>
-                )}
+                <View style={styles.badgeContainer}>
+                  <Text style={styles.badgeText}>{getOccupiedSpacesCount()}</Text>
+                </View>
               </View>
-              <Text style={styles.actionTitle}>Check Out</Text>
-              <Text style={styles.actionDescription}>
+              <Text style={[styles.actionTitle, { color: colors.text }]}>Check Out</Text>
+              <Text style={[styles.actionDescription, { color: colors.textLight }]}>
                 Process departures and payments
               </Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={styles.actionCard}
+              style={[styles.actionCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}
               onPress={() => navigation.navigate('ManageSpaces')}
             >
               <View style={[styles.actionIconContainer, { backgroundColor: '#E1F5FE' }]}>
                 <Ionicons name="car" size={24} color="#0288D1" />
               </View>
-              <Text style={styles.actionTitle}>Manage Spaces</Text>
-              <Text style={styles.actionDescription}>
+              <Text style={[styles.actionTitle, { color: colors.text }]}>Manage Spaces</Text>
+              <Text style={[styles.actionDescription, { color: colors.textLight }]}>
                 View and update parking spaces
               </Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={styles.actionCard}
+              style={[styles.actionCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}
               onPress={() => navigation.navigate('WorkerProfile')}
             >
               <View style={[styles.actionIconContainer, { backgroundColor: '#F3E5F5' }]}>
                 <Ionicons name="person" size={24} color="#7B1FA2" />
               </View>
-              <Text style={styles.actionTitle}>Profile</Text>
-              <Text style={styles.actionDescription}>
+              <Text style={[styles.actionTitle, { color: colors.text }]}>Profile</Text>
+              <Text style={[styles.actionDescription, { color: colors.textLight }]}>
                 Manage your account
               </Text>
             </TouchableOpacity>
           </View>
         </View>
         
-        <View style={styles.summaryContainer}>
-          <Text style={styles.sectionTitle}>Parking Overview</Text>
+        <View style={[styles.summaryContainer, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Parking Overview</Text>
           
           <View style={styles.statsContainer}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{getTotalSpaces()}</Text>
-              <Text style={styles.statLabel}>Total Spaces</Text>
+            <View style={[styles.statCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }]}>
+              <Text style={[styles.statValue, { color: colors.text }]}>{getTotalSpaces()}</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Total Spaces</Text>
             </View>
             
-            <View style={styles.statCard}>
+            <View style={[styles.statCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }]}>
               <Text style={[styles.statValue, { color: colors.success }]}>
                 {getAvailableSpacesCount()}
               </Text>
-              <Text style={styles.statLabel}>Available</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Available</Text>
             </View>
             
-            <View style={styles.statCard}>
+            <View style={[styles.statCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }]}>
               <Text style={[styles.statValue, { color: colors.error }]}>
                 {getOccupiedSpacesCount()}
               </Text>
-              <Text style={styles.statLabel}>Occupied</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Occupied</Text>
             </View>
             
-            <View style={styles.statCard}>
+            <View style={[styles.statCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }]}>
               <Text style={[styles.statValue, { color: colors.accent }]}>
                 {getBookedSpacesCount()}
               </Text>
-              <Text style={styles.statLabel}>Booked</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Booked</Text>
             </View>
           </View>
           
           <View style={styles.occupancyContainer}>
             <View style={styles.occupancyHeader}>
-              <Text style={styles.occupancyTitle}>Occupancy Rate</Text>
-              <Text style={styles.occupancyValue}>{getOccupancyRate().toFixed(1)}%</Text>
+              <Text style={[styles.occupancyTitle, { color: colors.text }]}>Occupancy Rate</Text>
+              <Text style={[styles.occupancyValue, { color: colors.primary }]}>{getOccupancyRate().toFixed(1)}%</Text>
             </View>
             
-            <View style={styles.occupancyBarContainer}>
+            <View style={[styles.occupancyBarContainer, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : '#F3F4F6' }]}>
               <View 
                 style={[
                   styles.occupancyBar, 
-                  { width: `${getOccupancyRate()}%` }
+                  { 
+                    width: `${getOccupancyRate()}%`,
+                    backgroundColor: colors.primary
+                  }
                 ]}
               />
             </View>
@@ -272,14 +287,14 @@ export default function WorkerDashboardScreen() {
         </View>
         
         <View style={styles.lotsContainer}>
-          <Text style={styles.sectionTitle}>Parking Lots Status</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Parking Lots Status</Text>
           
           {lots.map((lot) => (
-            <View key={lot.id} style={styles.lotCard}>
+            <View key={lot.id} style={[styles.lotCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
               <View style={styles.lotHeader}>
                 <View>
-                  <Text style={styles.lotName}>{lot.name}</Text>
-                  <Text style={styles.lotLocation}>{lot.location}</Text>
+                  <Text style={[styles.lotName, { color: colors.text }]}>{lot.name}</Text>
+                  <Text style={[styles.lotLocation, { color: colors.textLight }]}>{lot.location}</Text>
                 </View>
                 
                 <View style={[
@@ -303,31 +318,34 @@ export default function WorkerDashboardScreen() {
               <View style={styles.lotStats}>
                 <View style={styles.lotStat}>
                   <Ionicons name="car-outline" size={16} color={colors.textLight} />
-                  <Text style={styles.lotStatText}>
+                  <Text style={[styles.lotStatText, { color: colors.text }]}>
                     {lot.availableSpaces}/{lot.totalSpaces} Available
                   </Text>
                 </View>
                 
                 <View style={styles.lotStat}>
                   <Ionicons name="car" size={16} color={colors.error} />
-                  <Text style={styles.lotStatText}>
+                  <Text style={[styles.lotStatText, { color: colors.text }]}>
                     {lot.occupiedSpaces} Occupied
                   </Text>
                 </View>
                 
                 <View style={styles.lotStat}>
                   <Ionicons name="timer-outline" size={16} color={colors.accent} />
-                  <Text style={styles.lotStatText}>
+                  <Text style={[styles.lotStatText, { color: colors.text }]}>
                     {lot.bookedSpaces} Booked
                   </Text>
                 </View>
               </View>
               
-              <View style={styles.lotUtilization}>
+              <View style={[styles.lotUtilization, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : '#F3F4F6' }]}>
                 <View 
                   style={[
                     styles.utilizationBar,
-                    { width: `${((lot.occupiedSpaces + lot.bookedSpaces) / lot.totalSpaces) * 100}%` }
+                    { 
+                      width: `${((lot.occupiedSpaces + lot.bookedSpaces) / lot.totalSpaces) * 100}%`,
+                      backgroundColor: colors.primary
+                    }
                   ]}
                 />
               </View>
@@ -335,36 +353,36 @@ export default function WorkerDashboardScreen() {
           ))}
         </View>
         
-        <View style={styles.pricingContainer}>
-          <Text style={styles.sectionTitle}>Pricing Information</Text>
+        <View style={[styles.pricingContainer, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : colors.cardBackground }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Pricing Information</Text>
           
-          <View style={styles.pricingCard}>
-            <View style={styles.pricingHeader}>
-              <Text style={styles.pricingTitle}>Student Rate</Text>
+          <View style={[styles.pricingCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }]}>
+            <View style={[styles.pricingHeader, { borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.1)' : '#F3F4F6' }]}>
+              <Text style={[styles.pricingTitle, { color: colors.text }]}>Student Rate</Text>
               <View style={[styles.pricingBadge, { backgroundColor: '#E0F2F1' }]}>
                 <Text style={[styles.pricingBadgeText, { color: '#00897B' }]}>FIXED</Text>
               </View>
             </View>
             
             <View style={styles.pricingContent}>
-              <Text style={styles.pricingAmount}>KSH 200</Text>
-              <Text style={styles.pricingDescription}>
+              <Text style={[styles.pricingAmount, { color: colors.text }]}>KSH 200</Text>
+              <Text style={[styles.pricingDescription, { color: colors.textLight }]}>
                 Fixed daily rate for students with valid student email
               </Text>
             </View>
           </View>
           
-          <View style={styles.pricingCard}>
-            <View style={styles.pricingHeader}>
-              <Text style={styles.pricingTitle}>Guest Rate</Text>
+          <View style={[styles.pricingCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }]}>
+            <View style={[styles.pricingHeader, { borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.1)' : '#F3F4F6' }]}>
+              <Text style={[styles.pricingTitle, { color: colors.text }]}>Guest Rate</Text>
               <View style={[styles.pricingBadge, { backgroundColor: '#FEF3C7' }]}>
                 <Text style={[styles.pricingBadgeText, { color: '#D97706' }]}>HOURLY</Text>
               </View>
             </View>
             
             <View style={styles.pricingContent}>
-              <Text style={styles.pricingAmount}>KSH 50 <Text style={styles.pricingUnit}>/hour</Text></Text>
-              <Text style={styles.pricingDescription}>
+              <Text style={[styles.pricingAmount, { color: colors.text }]}>KSH 50 <Text style={[styles.pricingUnit, { color: colors.textLight }]}>/hour</Text></Text>
+              <Text style={[styles.pricingDescription, { color: colors.textLight }]}>
                 Hourly rate for guests (first 30 minutes are free)
               </Text>
             </View>
@@ -378,10 +396,8 @@ export default function WorkerDashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   header: {
-    backgroundColor: colors.primary,
     paddingTop: 60,
     paddingBottom: spacing.md,
     paddingHorizontal: spacing.lg,
@@ -404,7 +420,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.background,
   },
   loadingText: {
     marginTop: spacing.md,
@@ -413,7 +428,6 @@ const styles = StyleSheet.create({
   },
   errorContainer: {
     padding: spacing.md,
-    backgroundColor: '#FEF2F2',
     borderRadius: 10,
     marginBottom: spacing.md,
     alignItems: 'center',
@@ -423,7 +437,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   retryButton: {
-    backgroundColor: colors.primary,
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
     borderRadius: 5,
@@ -433,20 +446,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   quickActionsContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 10,
-    padding: spacing.md,
     marginBottom: spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
   },
   sectionTitle: {
     fontSize: fontSizes.lg,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.md,
   },
   actionsGrid: {
@@ -456,7 +460,6 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     width: '48%',
-    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -495,15 +498,12 @@ const styles = StyleSheet.create({
   actionTitle: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.xs,
   },
   actionDescription: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
   },
   summaryContainer: {
-    backgroundColor: colors.cardBackground,
     borderRadius: 10,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -521,7 +521,6 @@ const styles = StyleSheet.create({
   },
   statCard: {
     width: '48%',
-    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     padding: spacing.md,
     marginBottom: spacing.sm,
@@ -530,15 +529,12 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: fontSizes.xl,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.xs,
   },
   statLabel: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
   },
   occupancyContainer: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     padding: spacing.md,
   },
@@ -551,26 +547,24 @@ const styles = StyleSheet.create({
   occupancyTitle: {
     fontSize: fontSizes.md,
     fontWeight: '500',
-    color: colors.text,
   },
   occupancyValue: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.primary,
   },
   occupancyBarContainer: {
     height: 8,
-    backgroundColor: '#F3F4F6',
     borderRadius: 4,
   },
   occupancyBar: {
     height: '100%',
-    backgroundColor: colors.primary,
     borderRadius: 4,
   },
   lotsContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 10,
+    marginBottom: spacing.md,
+  },
+  lotCard: {
+    borderRadius: 8,
     padding: spacing.md,
     marginBottom: spacing.md,
     shadowColor: '#000',
@@ -578,12 +572,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
-  },
-  lotCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: spacing.md,
-    marginBottom: spacing.md,
   },
   lotHeader: {
     flexDirection: 'row',
@@ -594,11 +582,9 @@ const styles = StyleSheet.create({
   lotName: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.text,
   },
   lotLocation: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
   },
   lotStatusBadge: {
     paddingVertical: spacing.xs / 2,
@@ -630,21 +616,17 @@ const styles = StyleSheet.create({
   },
   lotStatText: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
     marginLeft: spacing.xs,
   },
   lotUtilization: {
     height: 6,
-    backgroundColor: '#F3F4F6',
     borderRadius: 3,
   },
   utilizationBar: {
     height: '100%',
-    backgroundColor: colors.primary,
     borderRadius: 3,
   },
   pricingContainer: {
-    backgroundColor: colors.cardBackground,
     borderRadius: 10,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -655,7 +637,6 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   pricingCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     marginBottom: spacing.md,
     overflow: 'hidden',
@@ -666,12 +647,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
   },
   pricingTitle: {
     fontSize: fontSizes.md,
     fontWeight: 'bold',
-    color: colors.text,
   },
   pricingBadge: {
     paddingVertical: spacing.xs / 2,
@@ -688,16 +667,14 @@ const styles = StyleSheet.create({
   pricingAmount: {
     fontSize: fontSizes.xl,
     fontWeight: 'bold',
-    color: colors.text,
     marginBottom: spacing.sm,
   },
   pricingUnit: {
     fontSize: fontSizes.md,
     fontWeight: 'normal',
-    color: colors.textLight,
   },
   pricingDescription: {
     fontSize: fontSizes.sm,
-    color: colors.textLight,
   }
 });
+
