@@ -7,13 +7,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  FlatList,
   Modal,
   ActivityIndicator,
   SafeAreaView,
   ScrollView,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Dimensions
 } from 'react-native';
 import { 
   getAllParkingLots as fetchParkingLots, 
@@ -23,7 +23,7 @@ import {
   deleteParkingSpace,
   createMultipleParkingSpaces
 } from '../../../src/api/parkingService';
-import { colors, spacing, fontSizes } from '../../constants/theme';
+import { useTheme } from '../../context/themeContext';
 import { Ionicons } from '@expo/vector-icons';
 import type { ParkingLot, ParkingSpace, ParkingSpaceStatus } from '../../../src/firebase/types';
 import { RouteProp } from '@react-navigation/native';
@@ -40,7 +40,11 @@ interface SpaceFormData {
   status: ParkingSpaceStatus;
 }
 
+const { width } = Dimensions.get('window');
+const SPACE_ITEM_SIZE = (width - 80) / 4; // 4 spaces per row with margins
+
 export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpaceAdminPanelProps) {
+  const { colors, isDarkMode } = useTheme();
   const [lots, setLots] = useState<ParkingLot[]>([]);
   const [selectedLot, setSelectedLot] = useState<ParkingLot | null>(null);
   const [spaces, setSpaces] = useState<ParkingSpace[]>([]);
@@ -56,6 +60,9 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
   });
   const [expandedSpace, setExpandedSpace] = useState<string | null>(null);
   const [generatingSpaces, setGeneratingSpaces] = useState(false);
+  const [spaceSearch, setSpaceSearch] = useState('');
+  const [isStatusFilterVisible, setIsStatusFilterVisible] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<ParkingSpaceStatus | 'all'>('all');
 
   // Load parking lots on component mount
   useEffect(() => {
@@ -78,8 +85,6 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
         } else {
           console.log(`Lot with ID ${lotId} not found in loaded lots`);
         }
-      } else {
-        console.log(`Waiting for lots to load to select lot ID: ${lotId}`);
       }
     }
   }, [route.params?.lotId, lots]);
@@ -126,6 +131,18 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
       // Sort spaces by number
       fetchedSpaces.sort((a, b) => a.number - b.number);
       setSpaces(fetchedSpaces);
+      
+      // Update the lot with accurate counts if needed
+      const updatedLot = lots.find(lot => lot.id === lotId);
+      if (updatedLot) {
+        // Refresh the lot data to get the synchronized counts
+        const refreshedLots = await fetchParkingLots();
+        setLots(refreshedLots);
+        const refreshedLot = refreshedLots.find(lot => lot.id === lotId);
+        if (refreshedLot) {
+          setSelectedLot(refreshedLot);
+        }
+      }
     } catch (err) {
       console.error('Error fetching parking spaces:', err);
       setError('Failed to load parking spaces. Please try again.');
@@ -141,6 +158,8 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
     loadParkingSpaces(lot.id);
     setSuccessMessage(null);
     setError(null);
+    setSpaceSearch('');
+    setStatusFilter('all');
   };
 
   // Open modal to add a new space
@@ -255,25 +274,15 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
         
         // Update local state
         setSpaces(prev => [...prev, newSpace].sort((a, b) => a.number - b.number));
-        
-        // Also update the lot's total spaces count
-        if (selectedLot) {
-          const updatedLot = {
-            ...selectedLot,
-            totalSpaces: selectedLot.totalSpaces + 1,
-            availableSpaces: selectedLot.availableSpaces + 1
-          };
-          setSelectedLot(updatedLot);
-          
-          // Update the lot in the lots array
-          setLots(prev => 
-            prev.map(lot => lot.id === selectedLot.id ? updatedLot : lot)
-          );
-        }
       }
 
       // Close modal after success
       setModalVisible(false);
+      
+      // Reload the spaces to get updated counts
+      if (selectedLot) {
+        await loadParkingSpaces(selectedLot.id);
+      }
     } catch (err) {
       console.error('Error saving parking space:', err);
       setError('Failed to save parking space. Please try again.');
@@ -304,24 +313,12 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
               // Update local state
               setSpaces(prev => prev.filter(item => item.id !== space.id));
               
-              // Also update the lot's total spaces count
-              if (selectedLot) {
-                const updatedLot = {
-                  ...selectedLot,
-                  totalSpaces: selectedLot.totalSpaces - 1,
-                  availableSpaces: space.status === 'vacant' ? selectedLot.availableSpaces - 1 : selectedLot.availableSpaces,
-                  occupiedSpaces: space.status === 'occupied' ? selectedLot.occupiedSpaces - 1 : selectedLot.occupiedSpaces,
-                  bookedSpaces: space.status === 'booked' ? selectedLot.bookedSpaces - 1 : selectedLot.bookedSpaces
-                };
-                setSelectedLot(updatedLot);
-                
-                // Update the lot in the lots array
-                setLots(prev => 
-                  prev.map(lot => lot.id === selectedLot.id ? updatedLot : lot)
-                );
-              }
-              
               setSuccessMessage('Parking space deleted successfully');
+              
+              // Reload the spaces to get updated counts
+              if (selectedLot) {
+                await loadParkingSpaces(selectedLot.id);
+              }
             } catch (err) {
               console.error('Error deleting parking space:', err);
               setError('Failed to delete parking space. Please try again.');
@@ -389,22 +386,12 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
               // Update local state
               setSpaces(prev => [...prev, ...newSpaces].sort((a, b) => a.number - b.number));
               
-              // Also update the lot's total spaces count
-              if (selectedLot) {
-                const updatedLot = {
-                  ...selectedLot,
-                  totalSpaces: selectedLot.totalSpaces + count,
-                  availableSpaces: selectedLot.availableSpaces + count
-                };
-                setSelectedLot(updatedLot);
-                
-                // Update the lot in the lots array
-                setLots(prev => 
-                  prev.map(lot => lot.id === selectedLot.id ? updatedLot : lot)
-                );
-              }
-              
               setSuccessMessage(`${count} parking spaces added successfully`);
+              
+              // Reload the spaces to get updated counts
+              if (selectedLot) {
+                await loadParkingSpaces(selectedLot.id);
+              }
             } catch (err) {
               console.error('Error generating parking spaces:', err);
               setError('Failed to generate parking spaces. Please try again.');
@@ -426,19 +413,64 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
     } else {
       loadParkingLots();
     }
+    
+    // Reset filters
+    setSpaceSearch('');
+    setStatusFilter('all');
   };
+
+  // Filter spaces based on search and status filter
+  const filteredSpaces = spaces.filter(space => {
+    const matchesSearch = spaceSearch === '' || 
+                          space.number.toString().includes(spaceSearch) ||
+                          (space.userEmail && space.userEmail.toLowerCase().includes(spaceSearch.toLowerCase())) ||
+                          (space.vehicleInfo && space.vehicleInfo.toLowerCase().includes(spaceSearch.toLowerCase()));
+    
+    const matchesStatus = statusFilter === 'all' || space.status === statusFilter;
+    
+    return matchesSearch && matchesStatus;
+  });
+
+  // Group spaces into rows of 4 for grid display
+  const groupedSpaces = filteredSpaces.reduce((groups, space, index) => {
+    const groupIndex = Math.floor(index / 4);
+    if (!groups[groupIndex]) {
+      groups[groupIndex] = [];
+    }
+    groups[groupIndex].push(space);
+    return groups;
+  }, [] as ParkingSpace[][]);
+
+  const styles = makeStyles(colors, isDarkMode);
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Parking Spaces Management</Text>
+        <Text style={styles.title}>Parking Spaces</Text>
+        
+        {selectedLot && (
+          <TouchableOpacity 
+            style={styles.refreshButton}
+            onPress={handleRefresh}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Ionicons name="refresh-outline" size={20} color="#FFFFFF" />
+            )}
+          </TouchableOpacity>
+        )}
       </View>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoidingContainer}
       >
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView 
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
           {error && (
             <View style={styles.errorContainer}>
               <Text style={styles.errorText}>{error}</Text>
@@ -452,7 +484,7 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
           )}
           
           <View style={styles.lotSelectionContainer}>
-            <Text style={styles.sectionTitle}>Select a Parking Lot</Text>
+            <Text style={styles.sectionTitle}>Select Parking Lot</Text>
             
             {loading && lots.length === 0 ? (
               <View style={styles.loadingContainer}>
@@ -491,14 +523,18 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
                     >
                       {lot.name}
                     </Text>
-                    <Text 
-                      style={[
+                    <View style={styles.lotStatsRow}>
+                      <Text style={[
                         styles.lotSpacesText,
                         selectedLot?.id === lot.id && styles.selectedLotButtonText
-                      ]}
-                    >
-                      {lot.totalSpaces} spaces
-                    </Text>
+                      ]}>
+                        {lot.totalSpaces} spaces
+                      </Text>
+                      <View style={[
+                        styles.statusDot,
+                        { backgroundColor: lot.availableSpaces > 0 ? colors.success : colors.error }
+                      ]} />
+                    </View>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -514,7 +550,7 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
                   disabled={saving || generatingSpaces}
                 >
                   <Ionicons name="add" size={20} color="#FFFFFF" />
-                  <Text style={styles.addButtonText}>Add Space</Text>
+                  <Text style={styles.buttonText}>Add Space</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity
@@ -527,155 +563,242 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
                   ) : (
                     <>
                       <Ionicons name="layers" size={20} color="#FFFFFF" />
-                      <Text style={styles.generateButtonText}>Generate Multiple</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={styles.refreshButton}
-                  onPress={handleRefresh}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <>
-                      <Ionicons name="refresh" size={20} color="#FFFFFF" />
-                      <Text style={styles.refreshButtonText}>Refresh</Text>
+                      <Text style={styles.buttonText}>Bulk Add</Text>
                     </>
                   )}
                 </TouchableOpacity>
               </View>
               
               <View style={styles.spacesContainer}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Parking Spaces</Text>
-                  <Text style={styles.spacesCount}>
-                    {spaces.length} spaces in {selectedLot.name}
-                  </Text>
+                <View style={styles.spacesHeader}>
+                  <View>
+                    <Text style={styles.sectionTitle}>Spaces</Text>
+                    <Text style={styles.spaceSummary}>
+                      {selectedLot.availableSpaces} available of {selectedLot.totalSpaces} total
+                    </Text>
+                  </View>
+                  
+                  <View style={styles.statsContainer}>
+                    <View style={styles.statItem}>
+                      <View style={[styles.statDot, { backgroundColor: colors.success }]} />
+                      <Text style={styles.statText}>{selectedLot.availableSpaces} Available</Text>
+                    </View>
+                    <View style={styles.statItem}>
+                      <View style={[styles.statDot, { backgroundColor: colors.error }]} />
+                      <Text style={styles.statText}>{selectedLot.occupiedSpaces} Occupied</Text>
+                    </View>
+                    <View style={styles.statItem}>
+                      <View style={[styles.statDot, { backgroundColor: colors.accent }]} />
+                      <Text style={styles.statText}>{selectedLot.bookedSpaces} Booked</Text>
+                    </View>
+                  </View>
                 </View>
+                
+                <View style={styles.searchFilterContainer}>
+                  <View style={styles.searchContainer}>
+                    <Ionicons name="search" size={20} color={colors.textLight} style={styles.searchIcon} />
+                    <TextInput
+                      style={styles.searchInput}
+                      value={spaceSearch}
+                      onChangeText={setSpaceSearch}
+                      placeholder="Search space #, email, or vehicle"
+                      placeholderTextColor={colors.textLight}
+                    />
+                    {spaceSearch !== '' && (
+                      <TouchableOpacity 
+                        onPress={() => setSpaceSearch('')}
+                        style={styles.clearButton}
+                      >
+                        <Ionicons name="close-circle" size={20} color={colors.textLight} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  
+                  <TouchableOpacity 
+                    style={styles.filterButton}
+                    onPress={() => setIsStatusFilterVisible(!isStatusFilterVisible)}
+                  >
+                    <Ionicons 
+                      name="filter" 
+                      size={20} 
+                      color={statusFilter !== 'all' ? colors.primary : colors.textLight} 
+                    />
+                  </TouchableOpacity>
+                </View>
+                
+                {isStatusFilterVisible && (
+                  <View style={styles.filterOptions}>
+                    <TouchableOpacity
+                      style={[
+                        styles.filterOption,
+                        statusFilter === 'all' && styles.filterOptionSelected
+                      ]}
+                      onPress={() => setStatusFilter('all')}
+                    >
+                      <Text style={[
+                        styles.filterOptionText,
+                        statusFilter === 'all' && styles.filterOptionTextSelected
+                      ]}>All</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.filterOption,
+                        statusFilter === 'vacant' && styles.filterOptionSelected
+                      ]}
+                      onPress={() => setStatusFilter('vacant')}
+                    >
+                      <Text style={[
+                        styles.filterOptionText,
+                        statusFilter === 'vacant' && styles.filterOptionTextSelected
+                      ]}>Available</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.filterOption,
+                        statusFilter === 'occupied' && styles.filterOptionSelected
+                      ]}
+                      onPress={() => setStatusFilter('occupied')}
+                    >
+                      <Text style={[
+                        styles.filterOptionText,
+                        statusFilter === 'occupied' && styles.filterOptionTextSelected
+                      ]}>Occupied</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.filterOption,
+                        statusFilter === 'booked' && styles.filterOptionSelected
+                      ]}
+                      onPress={() => setStatusFilter('booked')}
+                    >
+                      <Text style={[
+                        styles.filterOptionText,
+                        statusFilter === 'booked' && styles.filterOptionTextSelected
+                      ]}>Booked</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
                 
                 {loading ? (
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color={colors.primary} />
                     <Text style={styles.loadingText}>Loading parking spaces...</Text>
                   </View>
-                ) : spaces.length === 0 ? (
+                ) : filteredSpaces.length === 0 ? (
                   <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>No parking spaces in this lot</Text>
-                    <TouchableOpacity
-                      style={styles.emptyButton}
-                      onPress={handleAddSpace}
-                    >
-                      <Text style={styles.emptyButtonText}>Add First Space</Text>
-                    </TouchableOpacity>
+                    {spaces.length === 0 ? (
+                      <>
+                        <Text style={styles.emptyText}>No parking spaces in this lot</Text>
+                        <TouchableOpacity
+                          style={styles.emptyButton}
+                          onPress={handleAddSpace}
+                        >
+                          <Text style={styles.emptyButtonText}>Add First Space</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <Text style={styles.emptyText}>
+                        No spaces match your search criteria
+                      </Text>
+                    )}
                   </View>
                 ) : (
-                  <FlatList
-                    data={spaces}
-                    keyExtractor={(item) => item.id}
-                    renderItem={({ item }) => (
-                      <View style={styles.spaceCard}>
-                        <TouchableOpacity
-                          style={styles.spaceHeader}
-                          onPress={() => toggleSpaceDetails(item.id)}
-                        >
-                          <View style={styles.spaceInfo}>
-                            <Text style={styles.spaceNumber}>Space #{item.number}</Text>
-                            <View style={[
-                              styles.statusBadge,
-                              item.status === 'occupied' ? styles.occupiedBadge : 
-                              item.status === 'booked' ? styles.bookedBadge : 
-                              styles.availableBadge
-                            ]}>
+                  <View style={styles.spacesGrid}>
+                    {groupedSpaces.map((row, rowIndex) => (
+                      <View key={`row-${rowIndex}`} style={styles.spacesRow}>
+                        {row.map(space => (
+                          <View key={space.id} style={styles.spaceCardCompact}>
+                            <TouchableOpacity
+                              style={[
+                                styles.spaceButton,
+                                space.status === 'vacant' && styles.spaceVacant,
+                                space.status === 'occupied' && styles.spaceOccupied,
+                                space.status === 'booked' && styles.spaceBooked,
+                                expandedSpace === space.id && styles.spaceSelected,
+                              ]}
+                              onPress={() => toggleSpaceDetails(space.id)}
+                            >
                               <Text style={[
-                                styles.statusText,
-                                item.status === 'occupied' ? styles.occupiedText : 
-                                item.status === 'booked' ? styles.bookedText : 
-                                styles.availableText
+                                styles.spaceNumber,
+                                (space.status === 'occupied' || space.status === 'booked') && 
+                                styles.spaceNumberOccupied
                               ]}>
-                                {item.status.toUpperCase()}
+                                {space.number}
                               </Text>
-                            </View>
-                          </View>
-                          <Ionicons 
-                            name={expandedSpace === item.id ? "chevron-up" : "chevron-down"} 
-                            size={20} 
-                            color={colors.textLight} 
-                          />
-                        </TouchableOpacity>
-                        
-                        {expandedSpace === item.id && (
-                          <View style={styles.spaceDetails}>
-                            <View style={styles.detailRow}>
-                              <Text style={styles.detailLabel}>Status:</Text>
-                              <Text style={[
-                                styles.detailValue,
-                                item.status === 'occupied' ? { color: colors.error } : 
-                                item.status === 'booked' ? { color: colors.accent } : 
-                                { color: colors.success }
-                              ]}>
-                                {item.status === 'occupied' ? 'Occupied' : 
-                                 item.status === 'booked' ? 'Booked' : 
-                                 'Available'}
-                              </Text>
-                            </View>
-                            
-                            {item.currentBookingId && (
-                              <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Current Booking:</Text>
-                                <Text style={styles.detailValue}>{item.currentBookingId}</Text>
-                              </View>
-                            )}
-                            
-                            {item.userEmail && (
-                              <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>User:</Text>
-                                <Text style={styles.detailValue}>{item.userEmail}</Text>
-                              </View>
-                            )}
-                            
-                            {item.vehicleInfo && (
-                              <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Vehicle:</Text>
-                                <Text style={styles.detailValue}>{item.vehicleInfo}</Text>
-                              </View>
-                            )}
-                            
-                            {item.startTime && (
-                              <View style={styles.detailRow}>
-                                <Text style={styles.detailLabel}>Start Time:</Text>
-                                <Text style={styles.detailValue}>
-                                  {new Date(item.startTime).toLocaleString()}
-                                </Text>
-                              </View>
-                            )}
-                            
-                            <View style={styles.spaceActions}>
-                              <TouchableOpacity
-                                style={styles.editButton}
-                                onPress={() => handleEditSpace(item)}
-                              >
-                                <Ionicons name="create-outline" size={18} color="#FFFFFF" />
-                                <Text style={styles.editButtonText}>Edit</Text>
-                              </TouchableOpacity>
                               
-                              <TouchableOpacity
-                                style={styles.deleteButton}
-                                onPress={() => handleDeleteSpace(item)}
-                              >
-                                <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
-                                <Text style={styles.deleteButtonText}>Delete</Text>
-                              </TouchableOpacity>
-                            </View>
+                              <View style={styles.spaceStatusIndicator}>
+                                <Ionicons 
+                                  name={
+                                    space.status === 'vacant' ? 'checkmark-circle' : 
+                                    space.status === 'occupied' ? 'close-circle' : 'time'
+                                  }
+                                  size={14}
+                                  color={
+                                    space.status === 'vacant' ? colors.success : 
+                                    space.status === 'occupied' ? colors.error : colors.accent
+                                  }
+                                />
+                              </View>
+                            </TouchableOpacity>
+                            
+                            {expandedSpace === space.id && (
+                              <View style={styles.spaceDetails}>
+                                <View style={styles.spaceDetail}>
+                                  <Text style={styles.spaceDetailLabel}>Status:</Text>
+                                  <Text style={[
+                                    styles.spaceDetailValue,
+                                    { color: 
+                                      space.status === 'vacant' ? colors.success : 
+                                      space.status === 'occupied' ? colors.error : colors.accent
+                                    }
+                                  ]}>
+                                    {space.status === 'vacant' ? 'Available' : 
+                                    space.status === 'occupied' ? 'Occupied' : 'Booked'}
+                                  </Text>
+                                </View>
+                                
+                                {space.userEmail && (
+                                  <View style={styles.spaceDetail}>
+                                    <Text style={styles.spaceDetailLabel}>User:</Text>
+                                    <Text style={styles.spaceDetailValue} numberOfLines={1}>
+                                      {space.userEmail}
+                                    </Text>
+                                  </View>
+                                )}
+                                
+                                {space.vehicleInfo && (
+                                  <View style={styles.spaceDetail}>
+                                    <Text style={styles.spaceDetailLabel}>Vehicle:</Text>
+                                    <Text style={styles.spaceDetailValue} numberOfLines={1}>
+                                      {space.vehicleInfo}
+                                    </Text>
+                                  </View>
+                                )}
+                                
+                                <View style={styles.spaceActions}>
+                                  <TouchableOpacity
+                                    style={styles.editSpaceButton}
+                                    onPress={() => handleEditSpace(space)}
+                                  >
+                                    <Ionicons name="create-outline" size={16} color={colors.primary} />
+                                    <Text style={styles.editSpaceText}>Edit</Text>
+                                  </TouchableOpacity>
+                                  
+                                  <TouchableOpacity
+                                    style={styles.deleteSpaceButton}
+                                    onPress={() => handleDeleteSpace(space)}
+                                  >
+                                    <Ionicons name="trash-outline" size={16} color={colors.error} />
+                                    <Text style={styles.deleteSpaceText}>Delete</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                            )}
                           </View>
-                        )}
+                        ))}
                       </View>
-                    )}
-                    numColumns={1}
-                    contentContainerStyle={styles.spacesList}
-                  />
+                    ))}
+                  </View>
                 )}
               </View>
             </>
@@ -693,7 +816,7 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                {editingSpace ? 'Edit Parking Space' : 'Add New Parking Space'}
+                {editingSpace ? 'Edit Parking Space' : 'Add New Space'}
               </Text>
               <TouchableOpacity
                 style={styles.closeButton}
@@ -717,6 +840,7 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
                   value={formData.number}
                   onChangeText={(text) => setFormData(prev => ({ ...prev, number: text }))}
                   placeholder="Enter space number"
+                  placeholderTextColor={colors.textLight}
                   keyboardType="numeric"
                 />
               </View>
@@ -732,6 +856,12 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
                       ]}
                       onPress={() => setFormData(prev => ({ ...prev, status: 'vacant' }))}
                     >
+                      <Ionicons
+                        name="checkmark-circle" 
+                        size={16}
+                        color={formData.status === 'vacant' ? '#FFFFFF' : colors.textLight}
+                        style={styles.statusOptionIcon}
+                      />
                       <Text style={[
                         styles.statusOptionText,
                         formData.status === 'vacant' && styles.statusOptionTextSelected
@@ -743,10 +873,16 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
                     <TouchableOpacity
                       style={[
                         styles.statusOption,
-                        formData.status === 'occupied' && styles.statusOptionSelected
+                        formData.status === 'occupied' && styles.statusOptionSelectedOccupied
                       ]}
                       onPress={() => setFormData(prev => ({ ...prev, status: 'occupied' }))}
                     >
+                      <Ionicons
+                        name="close-circle" 
+                        size={16}
+                        color={formData.status === 'occupied' ? '#FFFFFF' : colors.textLight}
+                        style={styles.statusOptionIcon}
+                      />
                       <Text style={[
                         styles.statusOptionText,
                         formData.status === 'occupied' && styles.statusOptionTextSelected
@@ -758,10 +894,16 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
                     <TouchableOpacity
                       style={[
                         styles.statusOption,
-                        formData.status === 'booked' && styles.statusOptionSelected
+                        formData.status === 'booked' && styles.statusOptionSelectedBooked
                       ]}
                       onPress={() => setFormData(prev => ({ ...prev, status: 'booked' }))}
                     >
+                      <Ionicons
+                        name="time" 
+                        size={16}
+                        color={formData.status === 'booked' ? '#FFFFFF' : colors.textLight}
+                        style={styles.statusOptionIcon}
+                      />
                       <Text style={[
                         styles.statusOptionText,
                         formData.status === 'booked' && styles.statusOptionTextSelected
@@ -776,14 +918,14 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
             
             <View style={styles.modalFooter}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
+                style={styles.cancelButton}
                 onPress={() => setModalVisible(false)}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.modalButton, styles.saveButton]}
+                style={styles.saveButton}
                 onPress={handleSaveForm}
                 disabled={saving}
               >
@@ -803,7 +945,8 @@ export default function ParkingSpaceAdminPanel({ navigation, route }: ParkingSpa
   );
 }
 
-const styles = StyleSheet.create({
+// Dynamic styles with theme support
+const makeStyles = (colors: any, isDarkMode: boolean) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -814,66 +957,77 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.primary,
     paddingTop: 60,
-    paddingBottom: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   title: {
-    fontSize: fontSizes.xl,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
+  refreshButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   content: {
-    padding: spacing.md,
-    paddingBottom: spacing.xl * 2,
+    padding: 16,
+    paddingBottom: 32,
   },
   loadingContainer: {
     alignItems: 'center',
-    paddingVertical: spacing.xl,
+    paddingVertical: 24,
   },
   loadingText: {
-    marginTop: spacing.md,
-    fontSize: fontSizes.md,
+    marginTop: 8,
+    fontSize: 14,
     color: colors.textLight,
   },
   errorContainer: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.1)' : '#FEE2E2',
     borderRadius: 8,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+    padding: 12,
+    marginBottom: 16,
   },
   errorText: {
     color: colors.error,
   },
   successContainer: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: isDarkMode ? 'rgba(22, 163, 74, 0.1)' : '#DCFCE7',
     borderRadius: 8,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+    padding: 12,
+    marginBottom: 16,
   },
   successText: {
     color: colors.success,
   },
   lotSelectionContainer: {
-    marginBottom: spacing.md,
+    marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: fontSizes.lg,
+    fontSize: 18,
     fontWeight: 'bold',
     color: colors.text,
-    marginBottom: spacing.md,
+    marginBottom: 8,
   },
   lotsList: {
-    paddingBottom: spacing.sm,
+    paddingBottom: 8,
   },
   lotButton: {
-    backgroundColor: colors.cardBackground,
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : colors.cardBackground,
     borderRadius: 8,
-    padding: spacing.md,
-    marginRight: spacing.md,
+    padding: 12,
+    marginRight: 12,
     minWidth: 120,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: isDarkMode ? 0.3 : 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
@@ -881,36 +1035,46 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   lotButtonText: {
-    fontSize: fontSizes.md,
+    fontSize: 16,
     fontWeight: 'bold',
     color: colors.text,
-    marginBottom: spacing.xs,
+    marginBottom: 4,
   },
   selectedLotButtonText: {
     color: '#FFFFFF',
   },
+  lotStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   lotSpacesText: {
-    fontSize: fontSizes.sm,
+    fontSize: 12,
     color: colors.textLight,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: spacing.xl,
-    backgroundColor: colors.cardBackground,
+    padding: 24,
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : colors.cardBackground,
     borderRadius: 8,
   },
   emptyText: {
-    fontSize: fontSizes.md,
+    fontSize: 16,
     color: colors.textLight,
-    marginBottom: spacing.md,
+    marginBottom: 12,
     textAlign: 'center',
   },
   emptyButton: {
     backgroundColor: colors.primary,
     borderRadius: 8,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
   },
   emptyButtonText: {
     color: '#FFFFFF',
@@ -918,180 +1082,245 @@ const styles = StyleSheet.create({
   },
   actionsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
+    marginBottom: 16,
   },
   addButton: {
     backgroundColor: colors.primary,
     borderRadius: 8,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginRight: spacing.sm,
-  },
-  addButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    marginLeft: spacing.xs,
+    marginRight: 12,
   },
   generateButton: {
     backgroundColor: colors.accent,
     borderRadius: 8,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1.5,
-    marginRight: spacing.sm,
-  },
-  generateButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    marginLeft: spacing.xs,
-  },
-  refreshButton: {
-    backgroundColor: colors.success,
-    borderRadius: 8,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  refreshButtonText: {
+  buttonText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
-    marginLeft: spacing.xs,
+    marginLeft: 6,
   },
   spacesContainer: {
-    backgroundColor: colors.cardBackground,
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : colors.cardBackground,
     borderRadius: 10,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+    padding: 16,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: isDarkMode ? 0.3 : 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
+  spacesHeader: {
+    marginBottom: 12,
   },
-  spacesCount: {
-    fontSize: fontSizes.sm,
+  spaceSummary: {
+    fontSize: 14,
+    color: colors.textLight,
+    marginTop: 2,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+    marginBottom: 4,
+  },
+  statDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  statText: {
+    fontSize: 12,
     color: colors.textLight,
   },
-  spacesList: {
-    paddingBottom: spacing.md,
+  searchFilterContainer: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    alignItems: 'center',
   },
-  spaceCard: {
-    backgroundColor: '#F9FAFB',
+  searchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#F3F4F6',
     borderRadius: 8,
-    marginBottom: spacing.md,
-    overflow: 'hidden',
+    paddingHorizontal: 10,
+    marginRight: 8,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: colors.text,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  filterButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterOptions: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#F3F4F6',
+    borderRadius: 8,
+    padding: 4,
+  },
+  filterOption: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  filterOptionSelected: {
+    backgroundColor: colors.primary,
+  },
+  filterOptionText: {
+    fontSize: 12,
+    color: colors.textLight,
+    fontWeight: '500',
+  },
+  filterOptionTextSelected: {
+    color: '#FFFFFF',
+  },
+  spacesGrid: {
+    paddingTop: 4,
+  },
+  spacesRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  spaceCardCompact: {
+    width: SPACE_ITEM_SIZE,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  spaceButton: {
+    width: SPACE_ITEM_SIZE,
+    height: SPACE_ITEM_SIZE,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
   },
-  spaceHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.md,
+  spaceVacant: {
+    backgroundColor: isDarkMode ? 'rgba(22, 163, 74, 0.1)' : '#F0FDF4',
+    borderColor: isDarkMode ? 'rgba(22, 163, 74, 0.3)' : '#DCFCE7',
   },
-  spaceInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  spaceOccupied: {
+    backgroundColor: isDarkMode ? 'rgba(220, 38, 38, 0.1)' : '#FEF2F2',
+    borderColor: isDarkMode ? 'rgba(220, 38, 38, 0.3)' : '#FEE2E2',
+  },
+  spaceBooked: {
+    backgroundColor: isDarkMode ? 'rgba(234, 179, 8, 0.1)' : '#FFFBEB',
+    borderColor: isDarkMode ? 'rgba(234, 179, 8, 0.3)' : '#FEF3C7',
+  },
+  spaceSelected: {
+    borderWidth: 2,
+    borderColor: colors.primary,
   },
   spaceNumber: {
-    fontSize: fontSizes.md,
+    fontSize: 16,
     fontWeight: 'bold',
     color: colors.text,
-    marginRight: spacing.md,
   },
-  statusBadge: {
-    paddingVertical: spacing.xs / 2,
-    paddingHorizontal: spacing.sm,
-    borderRadius: 20,
-  },
-  availableBadge: {
-    backgroundColor: '#DCFCE7',
-  },
-  bookedBadge: {
-    backgroundColor: '#FEF3C7',
-  },
-  occupiedBadge: {
-    backgroundColor: '#FEE2E2',
-  },
-  statusText: {
-    fontSize: fontSizes.xs,
-    fontWeight: 'bold',
-  },
-  availableText: {
-    color: '#16A34A',
-  },
-  bookedText: {
-    color: '#D97706',
-  },
-  occupiedText: {
-    color: '#DC2626',
-  },
-  spaceDetails: {
-    padding: spacing.md,
-    backgroundColor: '#F3F4F6',
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-  },
-  detailRow: {
-    flexDirection: 'row',
-    marginBottom: spacing.xs,
-  },
-  detailLabel: {
-    width: 100,
-    fontSize: fontSizes.sm,
-    fontWeight: '500',
+  spaceNumberOccupied: {
     color: colors.textLight,
   },
-  detailValue: {
-    flex: 1,
-    fontSize: fontSizes.sm,
+  spaceStatusIndicator: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+  },
+  spaceDetails: {
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#F9FAFB',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
+  },
+  spaceDetail: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  spaceDetailLabel: {
+    fontSize: 12,
+    color: colors.textLight,
+    width: 50,
+  },
+  spaceDetailValue: {
+    fontSize: 12,
+    fontWeight: '500',
     color: colors.text,
+    flex: 1,
+    textAlign: 'right',
   },
   spaceActions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: spacing.md,
+    justifyContent: 'space-between',
+    marginTop: 10,
   },
-  editButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 5,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
+  editSpaceButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: spacing.sm,
+    justifyContent: 'center',
+    paddingVertical: 6,
+    marginRight: 4,
+    borderRadius: 4,
+    backgroundColor: isDarkMode ? 'rgba(37, 99, 235, 0.1)' : '#EFF6FF',
   },
-  editButtonText: {
-    color: '#FFFFFF',
-    fontSize: fontSizes.sm,
-    marginLeft: spacing.xs,
+  editSpaceText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.primary,
+    marginLeft: 4,
   },
-  deleteButton: {
-    backgroundColor: colors.error,
-    borderRadius: 5,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
+  deleteSpaceButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    marginLeft: 4,
+    borderRadius: 4,
+    backgroundColor: isDarkMode ? 'rgba(220, 38, 38, 0.1)' : '#FEF2F2',
   },
-  deleteButtonText: {
-    color: '#FFFFFF',
-    fontSize: fontSizes.sm,
-    marginLeft: spacing.xs,
+  deleteSpaceText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.error,
+    marginLeft: 4,
   },
   modalOverlay: {
     flex: 1,
@@ -1103,62 +1332,81 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
     width: '90%',
-    maxHeight: '80%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    padding: spacing.md,
+    borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#F3F4F6',
+    padding: 16,
   },
   modalTitle: {
-    fontSize: fontSizes.lg,
+    fontSize: 18,
     fontWeight: 'bold',
     color: colors.text,
   },
   closeButton: {
-    padding: spacing.xs,
+    padding: 4,
   },
   modalContent: {
-    padding: spacing.md,
+    padding: 16,
   },
   formGroup: {
-    marginBottom: spacing.md,
+    marginBottom: 16,
   },
   formLabel: {
-    fontSize: fontSizes.sm,
+    fontSize: 14,
     fontWeight: '500',
-    marginBottom: spacing.xs,
+    marginBottom: 6,
     color: colors.text,
   },
   formInput: {
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0',
     borderRadius: 8,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: fontSizes.md,
-    backgroundColor: '#F9FAFB',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#F9FAFB',
+    color: colors.text,
   },
   statusToggle: {
     flexDirection: 'row',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#F3F4F6',
     borderRadius: 8,
+    overflow: 'hidden',
   },
   statusOption: {
     flex: 1,
-    paddingVertical: spacing.sm,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
   statusOptionSelected: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
+    backgroundColor: colors.success,
+  },
+  statusOptionSelectedOccupied: {
+    backgroundColor: colors.error,
+  },
+  statusOptionSelectedBooked: {
+    backgroundColor: colors.accent,
+  },
+  statusOptionIcon: {
+    marginRight: 4,
   },
   statusOptionText: {
     color: colors.textLight,
     fontWeight: '500',
+    fontSize: 12,
   },
   statusOptionTextSelected: {
     color: '#FFFFFF',
@@ -1166,30 +1414,33 @@ const styles = StyleSheet.create({
   modalFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    padding: spacing.md,
+    padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-  modalButton: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: 8,
-    minWidth: 80,
-    alignItems: 'center',
+    borderTopColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#F3F4F6',
   },
   cancelButton: {
-    backgroundColor: '#F3F4F6',
-    marginRight: spacing.md,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#F3F4F6',
+    marginRight: 12,
   },
   cancelButtonText: {
     color: colors.textLight,
     fontWeight: '500',
   },
   saveButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
     backgroundColor: colors.primary,
+    minWidth: 100,
+    alignItems: 'center',
   },
   saveButtonText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
   },
 });
+
+export default ParkingSpaceAdminPanel;

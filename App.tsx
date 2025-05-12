@@ -87,6 +87,8 @@ const AppContent = () => {
     return unsubscribe;
   }, []);
 
+  
+
   // Loading state
   if (initializing || loading) {
     return (
