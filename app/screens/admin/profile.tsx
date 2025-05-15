@@ -10,18 +10,38 @@ import {
   SafeAreaView,
   ScrollView,
   TextInput,
+  Modal,
 } from 'react-native';
-import { signOut, getCurrentUser } from '../../../src/firebase/auth';
+import { signOut, getCurrentUser, updateUserProfile } from '../../../src/firebase/auth';
 import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import type { User } from '../../../src/firebase/types';
+import { useNavigation } from '@react-navigation/native';
 
 export default function AdminProfileScreen() {
+  const navigation = useNavigation();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [displayName, setDisplayName] = useState('');
   const [isEditingName, setIsEditingName] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // States for password change modal
+  const [passwordModalVisible, setPasswordModalVisible] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  
+  // States for staff management modal
+  const [staffModalVisible, setStaffModalVisible] = useState(false);
+  
+  // States for system logs modal
+  const [logsModalVisible, setLogsModalVisible] = useState(false);
+  
+  // States for system settings modal
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -72,19 +92,30 @@ export default function AdminProfileScreen() {
   };
 
   const handleSaveDisplayName = async () => {
-    // In a real app, you would update the display name in Firebase
-    // For now, we'll just update the local state
+    if (!displayName.trim()) {
+      Alert.alert('Error', 'Display name cannot be empty');
+      return;
+    }
+    
     try {
-      // Simulate API call
       setLoading(true);
+      
+      // In a real app, you would update Firebase Auth and Firestore
+      // For now, we'll simulate the API call
       await new Promise(resolve => setTimeout(resolve, 500));
       
+      // Update local state
       if (user) {
-        setUser({
+        const updatedUser = {
           ...user,
-          displayName: displayName,
-        });
+          displayName: displayName.trim(),
+        };
+        setUser(updatedUser);
+        
+        // In a real app, you would call something like:
+        // await updateUserProfile(updatedUser);
       }
+      
       setIsEditingName(false);
       Alert.alert('Success', 'Display name updated successfully');
     } catch (err) {
@@ -93,6 +124,88 @@ export default function AdminProfileScreen() {
     } finally {
       setLoading(false);
     }
+  };
+  
+  const handleChangePassword = () => {
+    // Reset the password form fields
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError(null);
+    
+    // Show the password change modal
+    setPasswordModalVisible(true);
+  };
+  
+  const handleSavePassword = async () => {
+    // Basic validation
+    if (!currentPassword) {
+      setPasswordError('Current password is required');
+      return;
+    }
+    
+    if (!newPassword) {
+      setPasswordError('New password is required');
+      return;
+    }
+    
+    if (newPassword.length < 6) {
+      setPasswordError('New password must be at least 6 characters long');
+      return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New passwords do not match');
+      return;
+    }
+    
+    try {
+      setPasswordLoading(true);
+      setPasswordError(null);
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // In a real app, you would call Firebase Auth to update the password
+      // await updatePassword(currentPassword, newPassword);
+      
+      setPasswordModalVisible(false);
+      Alert.alert('Success', 'Password updated successfully');
+    } catch (err) {
+      console.error('Error updating password:', err);
+      setPasswordError('Failed to update password. Please check your current password and try again.');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+  
+  const handleManageStaff = () => {
+    // For now, just show a simple modal
+    setStaffModalVisible(true);
+    
+    // In a full implementation, you might navigate to a staff management screen
+    // navigation.navigate('StaffManagement');
+  };
+  
+  const handleViewSystemLogs = () => {
+    // For now, just show a simple modal
+    setLogsModalVisible(true);
+    
+    // In a full implementation, you might navigate to a logs screen
+    // navigation.navigate('SystemLogs');
+  };
+  
+  const handleSystemSettings = () => {
+    // For now, just show a simple modal
+    setSettingsModalVisible(true);
+    
+    // In a full implementation, you might navigate to a settings screen
+    // navigation.navigate('SystemSettings');
+  };
+  
+  const handleHelpCenter = () => {
+    // Navigate to the help center screen
+    navigation.navigate('HelpCenter' as never);
   };
 
   if (loading) {
@@ -221,7 +334,10 @@ export default function AdminProfileScreen() {
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>Admin Actions</Text>
           
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={handleChangePassword}
+          >
             <View style={styles.menuItemIconContainer}>
               <Ionicons name="key-outline" size={20} color={colors.primary} />
             </View>
@@ -231,7 +347,10 @@ export default function AdminProfileScreen() {
             </View>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={handleManageStaff}
+          >
             <View style={styles.menuItemIconContainer}>
               <Ionicons name="people-outline" size={20} color={colors.primary} />
             </View>
@@ -241,7 +360,10 @@ export default function AdminProfileScreen() {
             </View>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={handleViewSystemLogs}
+          >
             <View style={styles.menuItemIconContainer}>
               <Ionicons name="document-text-outline" size={20} color={colors.primary} />
             </View>
@@ -255,7 +377,10 @@ export default function AdminProfileScreen() {
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>System</Text>
           
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={handleSystemSettings}
+          >
             <View style={styles.menuItemIconContainer}>
               <Ionicons name="settings-outline" size={20} color={colors.primary} />
             </View>
@@ -265,7 +390,10 @@ export default function AdminProfileScreen() {
             </View>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={handleHelpCenter}
+          >
             <View style={styles.menuItemIconContainer}>
               <Ionicons name="help-circle-outline" size={20} color={colors.primary} />
             </View>
@@ -283,6 +411,259 @@ export default function AdminProfileScreen() {
           <Text style={styles.signOutButtonText}>Sign Out</Text>
         </TouchableOpacity>
       </ScrollView>
+      
+      {/* Change Password Modal */}
+      <Modal
+        visible={passwordModalVisible}
+        animationType="slide"
+        transparent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Change Password</Text>
+              <TouchableOpacity
+                onPress={() => setPasswordModalVisible(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color={colors.textLight} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalContent}>
+              {passwordError && (
+                <View style={styles.errorMessageContainer}>
+                  <Text style={styles.errorMessageText}>{passwordError}</Text>
+                </View>
+              )}
+              
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Current Password</Text>
+                <View style={styles.passwordInputContainer}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    value={currentPassword}
+                    onChangeText={setCurrentPassword}
+                    placeholder="Enter current password"
+                    secureTextEntry={true}
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+              
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>New Password</Text>
+                <View style={styles.passwordInputContainer}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="Enter new password"
+                    secureTextEntry={true}
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+              
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Confirm New Password</Text>
+                <View style={styles.passwordInputContainer}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="Confirm new password"
+                    secureTextEntry={true}
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+            </View>
+            
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setPasswordModalVisible(false)}
+              >
+                <Text style={styles.modalCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.modalSaveButton}
+                onPress={handleSavePassword}
+                disabled={passwordLoading}
+              >
+                {passwordLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.modalSaveButtonText}>Update Password</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Staff Management Modal */}
+      <Modal
+        visible={staffModalVisible}
+        animationType="slide"
+        transparent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Manage Staff Accounts</Text>
+              <TouchableOpacity
+                onPress={() => setStaffModalVisible(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color={colors.textLight} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalContent}>
+              <Text style={styles.modalDescription}>
+                This feature will allow you to manage staff accounts, including creating new admin and worker accounts, 
+                editing permissions, and deactivating accounts as needed.
+              </Text>
+              
+              <View style={styles.featureCard}>
+                <Ionicons name="people" size={28} color={colors.primary} />
+                <Text style={styles.featureCardTitle}>Staff Management</Text>
+                <Text style={styles.featureCardDescription}>
+                  Feature under development. This will allow you to manage all staff accounts in one place.
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setStaffModalVisible(false)}
+              >
+                <Text style={styles.modalCancelButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* System Logs Modal */}
+      <Modal
+        visible={logsModalVisible}
+        animationType="slide"
+        transparent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>System Logs</Text>
+              <TouchableOpacity
+                onPress={() => setLogsModalVisible(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color={colors.textLight} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalContent}>
+              <Text style={styles.modalDescription}>
+                This feature will allow you to view system logs, including user actions, system events, 
+                and error reports.
+              </Text>
+              
+              <View style={styles.featureCard}>
+                <Ionicons name="document-text" size={28} color={colors.primary} />
+                <Text style={styles.featureCardTitle}>System Logging</Text>
+                <Text style={styles.featureCardDescription}>
+                  Feature under development. This will provide detailed system logs for monitoring and troubleshooting.
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setLogsModalVisible(false)}
+              >
+                <Text style={styles.modalCancelButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* System Settings Modal */}
+      <Modal
+        visible={settingsModalVisible}
+        animationType="slide"
+        transparent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>System Settings</Text>
+              <TouchableOpacity
+                onPress={() => setSettingsModalVisible(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color={colors.textLight} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalContent}>
+              <Text style={styles.modalDescription}>
+                This feature will allow you to configure system-wide settings for the LanesParking application.
+              </Text>
+              
+              <View style={styles.featureCard}>
+                <Ionicons name="settings" size={28} color={colors.primary} />
+                <Text style={styles.featureCardTitle}>System Configuration</Text>
+                <Text style={styles.featureCardDescription}>
+                  Feature under development. This will provide administrative controls for configuring the parking system.
+                </Text>
+              </View>
+              
+              {/* Simple setting toggle example */}
+              <View style={styles.settingItem}>
+                <View style={styles.settingItemContent}>
+                  <Text style={styles.settingTitle}>Enable Notifications</Text>
+                  <Text style={styles.settingDescription}>Send push notifications for system events</Text>
+                </View>
+                <TouchableOpacity 
+                  style={[styles.toggleSwitch, styles.toggleSwitchOn]}
+                  onPress={() => Alert.alert('Setting', 'Notification setting would be toggled')}
+                >
+                  <View style={[styles.toggleSwitchButton, styles.toggleSwitchButtonOn]} />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.settingItem}>
+                <View style={styles.settingItemContent}>
+                  <Text style={styles.settingTitle}>Auto-cancel Bookings</Text>
+                  <Text style={styles.settingDescription}>Cancel bookings after 30 minutes if user doesn't arrive</Text>
+                </View>
+                <TouchableOpacity 
+                  style={[styles.toggleSwitch, styles.toggleSwitchOn]}
+                  onPress={() => Alert.alert('Setting', 'Auto-cancel setting would be toggled')}
+                >
+                  <View style={[styles.toggleSwitchButton, styles.toggleSwitchButtonOn]} />
+                </TouchableOpacity>
+              </View>
+            </View>
+            
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setSettingsModalVisible(false)}
+              >
+                <Text style={styles.modalCancelButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -485,5 +866,171 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     fontSize: fontSizes.md,
     fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    width: '90%',
+    maxWidth: 420,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  modalTitle: {
+    fontSize: fontSizes.lg,
+    fontWeight: 'bold',
+    color: colors.text,
+  },
+  modalCloseButton: {
+    padding: spacing.xs,
+  },
+  modalContent: {
+    padding: spacing.md,
+  },
+  modalDescription: {
+    fontSize: fontSizes.md,
+    color: colors.textLight,
+    marginBottom: spacing.md,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    padding: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  modalCancelButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    marginRight: spacing.sm,
+  },
+  modalCancelButtonText: {
+    color: colors.textLight,
+    fontWeight: '500',
+  },
+  modalSaveButton: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+  },
+  modalSaveButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  formGroup: {
+    marginBottom: spacing.md,
+  },
+  formLabel: {
+    fontSize: fontSizes.md,
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  passwordInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: spacing.sm,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    fontSize: fontSizes.md,
+  },
+  errorMessageContainer: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: 8,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  errorMessageText: {
+    color: '#DC2626',
+    fontSize: fontSizes.sm,
+  },
+  featureCard: {
+    backgroundColor: '#F9FAFB',
+    padding: spacing.md,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginVertical: spacing.md,
+  },
+  featureCardTitle: {
+    fontSize: fontSizes.md,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  featureCardDescription: {
+    fontSize: fontSizes.sm,
+    color: colors.textLight,
+    textAlign: 'center',
+  },
+  settingItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  settingItemContent: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  settingTitle: {
+    fontSize: fontSizes.md,
+    fontWeight: '500',
+    color: colors.text,
+    marginBottom: spacing.xs / 2,
+  },
+  settingDescription: {
+    fontSize: fontSizes.sm,
+    color: colors.textLight,
+  },
+  toggleSwitch: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    padding: 2,
+  },
+  toggleSwitchOn: {
+    backgroundColor: colors.primary,
+  },
+  toggleSwitchOff: {
+    backgroundColor: '#E5E7EB',
+  },
+  toggleSwitchButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'white',
+  },
+  toggleSwitchButtonOn: {
+    marginLeft: 'auto',
+  },
+  toggleSwitchButtonOff: {
+    marginLeft: 0,
   },
 });

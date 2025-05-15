@@ -1,4 +1,4 @@
-// App.tsx - Modified with ThemeProvider
+// App.tsx - Modified without ThemeProvider
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, ActivityIndicator, StatusBar } from 'react-native';
@@ -8,7 +8,6 @@ import { auth, db } from './src/firebase/firebaseConfig';
 import { colors } from './app/constants/theme';
 import { User, UserRole } from './src/firebase/types';
 import { getCurrentUser } from './src/firebase/auth';
-import { ThemeProvider, useTheme } from './app/context/themeContext';
 
 // Import Navigators
 import AuthNavigator from './app/screens/navigators/authNavigator';
@@ -16,12 +15,11 @@ import UserNavigator from './app/screens/navigators/userNavigator';
 import AdminNavigator from './app/screens/navigators/adminNavigator';
 import WorkerNavigator from './app/screens/navigators/workerNavigator';
 
-// Main App content component
-const AppContent = () => {
+// Main App component
+export default function App() {
   const [initializing, setInitializing] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
-  const { colors, isDarkMode } = useTheme();
 
   // Auth state listener
   useEffect(() => {
@@ -87,8 +85,6 @@ const AppContent = () => {
     return unsubscribe;
   }, []);
 
-  
-
   // Loading state
   if (initializing || loading) {
     return (
@@ -114,7 +110,7 @@ const AppContent = () => {
   return (
     <>
       <StatusBar 
-        barStyle={isDarkMode ? "light-content" : "dark-content"} 
+        barStyle="light-content" 
         backgroundColor={colors.primary}
       />
       <NavigationContainer>
@@ -129,14 +125,5 @@ const AppContent = () => {
         )}
       </NavigationContainer>
     </>
-  );
-};
-
-// Main App component with ThemeProvider
-export default function App() {
-  return (
-    <ThemeProvider>
-      <AppContent />
-    </ThemeProvider>
   );
 }

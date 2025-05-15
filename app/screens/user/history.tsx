@@ -1,4 +1,4 @@
-// app/screens/user/history.tsx - Updated with real-time updates
+// app/screens/user/history.tsx - Optimized to use existing indexes
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -35,61 +35,117 @@ export default function HistoryScreen() {
   const bookingsUnsubscribeRef = useRef<(() => void) | null>(null);
 
   // Load bookings on component mount
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        setError(null);
-        setLoading(true);
-
-        const user = await getCurrentUser();
-        if (!user) {
-          throw new Error('User not authenticated');
-        }
-        
-        setCurrentUser(user);
-        await fetchBookings(user.id);
-        
-        // Subscribe to real-time updates for user's bookings
-        if (bookingsUnsubscribeRef.current) {
-          bookingsUnsubscribeRef.current();
-        }
-        
-        bookingsUnsubscribeRef.current = parkingUpdateService.subscribeToUserActiveBookings(
-          user.id,
-          async (updatedBookings) => {
-            console.log('History screen: Real-time bookings update received:', updatedBookings.length);
-            // Refresh all bookings to ensure we have the complete history
-            await fetchBookings(user.id);
-          }
-        );
-      } catch (err) {
-        console.error('Error fetching initial booking data:', err);
-        setError('Failed to load your booking history');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInitialData();
-    
-    // Clean up subscription when component unmounts
-    return () => {
-      if (bookingsUnsubscribeRef.current) {
-        bookingsUnsubscribeRef.current();
-      }
-    };
-  }, []);
-
-  // Fetch bookings with lot names
-  const fetchBookings = async (userId: string) => {
+  // Modified part of the useEffect in history.tsx
+useEffect(() => {
+  const fetchInitialData = async () => {
     try {
       setError(null);
+      setLoading(true);
+
+      const user = await getCurrentUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
       
+      setCurrentUser(user);
+      
+      // First load all bookings for the user - this uses the userId + startTime index
+      await fetchBookings(user.id);
+      
+      // Try to subscribe to real-time updates, but fall back to periodic polling if index is missing
+      if (bookingsUnsubscribeRef.current) {
+        bookingsUnsubscribeRef.current();
+        bookingsUnsubscribeRef.current = null;
+      }
+      
+      try {
+        // This will throw an error if the index is missing
+        bookingsUnsubscribeRef.current = parkingUpdateService.subscribeToUserActiveBookings(
+          user.id,
+          async (updatedActiveBookings) => {
+            console.log('History screen: Real-time active bookings update received:', updatedActiveBookings.length);
+            
+            // Use optimistic UI update for active bookings
+            if (updatedActiveBookings.length > 0) {
+              // Implementation remains the same...
+              const activeBookingsMap = new Map(
+                updatedActiveBookings.map(booking => [booking.id, booking])
+              );
+              
+              setBookings(prevBookings => {
+                return prevBookings.map(booking => {
+                  if (activeBookingsMap.has(booking.id)) {
+                    const updatedBooking = activeBookingsMap.get(booking.id)!;
+                    return { ...updatedBooking, lotName: booking.lotName };
+                  }
+                  return booking;
+                });
+              });
+            }
+            
+            if (updatedActiveBookings.length <= 2) {
+              await fetchBookings(user.id, false);
+            }
+          }
+        );
+      } catch (indexError) {
+        console.warn('Missing index for real-time updates, falling back to polling:', indexError);
+        
+        // Fallback to polling every 15 seconds if the index is missing
+        const pollIntervalId = setInterval(async () => {
+          if (currentUser) {
+            console.log('Polling for booking updates (index missing)');
+            await fetchBookings(currentUser.id, false);
+          }
+        }, 15000); // Poll every 15 seconds
+        
+        // Store the interval ID for cleanup
+        bookingsUnsubscribeRef.current = () => clearInterval(pollIntervalId);
+      }
+      
+    } catch (err) {
+      console.error('Error fetching initial booking data:', err);
+      setError('Failed to load your booking history');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchInitialData();
+  
+  // Clean up subscription when component unmounts
+  return () => {
+    if (bookingsUnsubscribeRef.current) {
+      bookingsUnsubscribeRef.current();
+    }
+  };
+}, []);
+
+  // Fetch bookings with lot names - optimized to use existing userId + startTime index
+  const fetchBookings = async (userId: string, showLoading = true) => {
+    try {
+      if (showLoading) {
+        setError(null);
+      }
+      
+      // Use the userId + startTime index efficiently by requesting sort by startTime
+      // getUserBookings already implements this internally
       let userBookings = await getUserBookings(userId);
       
-      // Fetch lot details for each booking
+      // Process lot information for each booking
       const bookingsWithLotNames = await Promise.all(
         userBookings.map(async (booking) => {
+          // First check if we already have this lot's name in our existing bookings
+          // This reduces redundant Firestore queries for the same lot
+          const existingBookingWithSameLot = bookings.find(b => b.lotId === booking.lotId);
+          if (existingBookingWithSameLot?.lotName) {
+            return {
+              ...booking,
+              lotName: existingBookingWithSameLot.lotName
+            };
+          }
+          
+          // Fetch the lot information only if we don't have it already
           try {
             const lot = await getParkingLot(booking.lotId);
             return {
@@ -108,13 +164,15 @@ export default function HistoryScreen() {
       setBookings(bookingsWithLotNames);
     } catch (err) {
       console.error('Error fetching bookings:', err);
-      setError('Failed to load your booking history');
+      if (showLoading) {
+        setError('Failed to load your booking history');
+      }
     } finally {
       setRefreshing(false);
     }
   };
 
-  // Handle refresh
+  // Handle refresh - optimized to avoid redundant lotName fetching
   const onRefresh = async () => {
     setRefreshing(true);
     if (currentUser) {
@@ -124,7 +182,7 @@ export default function HistoryScreen() {
     }
   };
 
-  // Handle booking cancellation
+  // Handle booking cancellation - optimized for immediate UI feedback
   const handleCancelBooking = (bookingId: string) => {
     Alert.alert(
       'Cancel Booking',
@@ -139,17 +197,29 @@ export default function HistoryScreen() {
           onPress: async () => {
             try {
               setLoading(true);
+              
+              // Optimistic UI update - immediately show as cancelled
+              setBookings(prevBookings => 
+                prevBookings.map(booking => 
+                  booking.id === bookingId 
+                    ? { ...booking, status: 'cancelled', endTime: new Date().toISOString() } 
+                    : booking
+                )
+              );
+              
+              // Actually perform the cancellation
               await updateBookingStatus(bookingId, 'cancelled', new Date().toISOString());
               
-              // The real-time updates will refresh the bookings
-              // We can also manually refresh for immediate feedback
-              if (currentUser) {
-                await fetchBookings(currentUser.id);
-              }
+              // The real-time subscription will handle any further updates if needed
+              setLoading(false);
             } catch (err) {
               console.error('Error cancelling booking:', err);
               Alert.alert('Error', 'Failed to cancel booking');
-            } finally {
+              
+              // On error, refresh to get the correct state
+              if (currentUser) {
+                await fetchBookings(currentUser.id);
+              }
               setLoading(false);
             }
           },
@@ -365,6 +435,7 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
+  // All your existing styles remain unchanged
   container: {
     flex: 1,
   },

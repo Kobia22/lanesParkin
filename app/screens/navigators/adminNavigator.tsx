@@ -12,10 +12,22 @@ import ParkingLotAdminPanel from '../admin/parkingLotAdminPanel';
 import ParkingSpaceAdminPanel from '../admin/parkingSpaceAdminPanel';
 import AdminProfileScreen from '../admin/profile';
 
+// Help Center Screens
+import HelpCenterScreen from '../admin/helpCenter';
+import HelpTopicScreen from '../admin/helpTopic';
+import DocumentationScreen from '../admin/documentation';
+
 // Admin Stack Param List for the parking management
 export type AdminParkingStackParamList = {
   ParkingLotAdminPanel: undefined;
   ParkingSpaceAdminPanel: { lotId: string | null };
+};
+
+// Help Center Stack Param List
+export type HelpCenterStackParamList = {
+  HelpCenter: undefined;
+  HelpTopic: { topicId: string };
+  Documentation: undefined;
 };
 
 // Create a stack navigator for the parking management screens
@@ -44,6 +56,41 @@ const ParkingManagementNavigator = () => {
         options={{ title: 'Parking Spaces' }}
       />
     </ParkingStack.Navigator>
+  );
+};
+
+// Create a stack navigator for the help center screens
+const HelpStack = createStackNavigator<HelpCenterStackParamList>();
+
+const HelpCenterNavigator = () => {
+  return (
+    <HelpStack.Navigator
+      initialRouteName="HelpCenter"
+      screenOptions={{
+        headerShown: false, // We're managing headers in each screen
+      }}
+    >
+      <HelpStack.Screen name="HelpCenter" component={HelpCenterScreen} />
+      <HelpStack.Screen name="HelpTopic" component={HelpTopicScreen} />
+      <HelpStack.Screen name="Documentation" component={DocumentationScreen} />
+    </HelpStack.Navigator>
+  );
+};
+
+// Create a stack navigator for the profile section that includes the help center
+const ProfileStack = createStackNavigator();
+
+const ProfileNavigator = () => {
+  return (
+    <ProfileStack.Navigator
+      initialRouteName="ProfileMain"
+      screenOptions={{
+        headerShown: false, // We're managing headers in each screen
+      }}
+    >
+      <ProfileStack.Screen name="ProfileMain" component={AdminProfileScreen} />
+      <ProfileStack.Screen name="HelpCenter" component={HelpCenterNavigator} />
+    </ProfileStack.Navigator>
   );
 };
 
@@ -109,9 +156,10 @@ const AdminNavigator = () => {
       />
       <Tab.Screen 
         name="Profile" 
-        component={AdminProfileScreen} 
+        component={ProfileNavigator} 
         options={{
           title: 'Profile',
+          headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person" color={color} size={size} />
           ),

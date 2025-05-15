@@ -12,23 +12,9 @@ import HistoryScreen from '../user/history';
 import ProfileScreen from '../user/profile';
 import ChangePasswordScreen from '../user/changePassword';
 import AppearanceScreen from '../user/appearance';
-
-// User Tab Param List
-export type UserTabParamList = {
-  Home: undefined;
-  Booking: { lotId?: string; spaceId?: string };
-  History: undefined;
-  Profile: undefined;
-};
-
-export type ProfileStackParamList = {
-  ProfileMain: undefined;
-  ChangePassword: undefined;
-  Appearance: undefined;
-};
-
-const Tab = createBottomTabNavigator<UserTabParamList>();
-const ProfileStack = createStackNavigator<ProfileStackParamList>();
+import TermsOfServiceScreen from '../user/termsOfService';
+import PrivacyPolicyScreen from '../user/privacyPolicy';
+import HelpSupportScreen from '../user/helpSupport';
 
 function ProfileStackNavigator() {
   const { colors } = useTheme();
@@ -43,9 +29,34 @@ function ProfileStackNavigator() {
       <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
       <ProfileStack.Screen name="ChangePassword" component={ChangePasswordScreen} />
       <ProfileStack.Screen name="Appearance" component={AppearanceScreen} />
+      <ProfileStack.Screen name="TermsOfService" component={TermsOfServiceScreen} />
+      <ProfileStack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
+      <ProfileStack.Screen name="HelpSupport" component={HelpSupportScreen} />
     </ProfileStack.Navigator>
   );
 }
+// User Tab Param List
+export type UserTabParamList = {
+  Home: undefined;
+  Booking: { lotId?: string; spaceId?: string };
+  History: undefined;
+  Profile: undefined;
+};
+
+// First, let's add the new screens to the ProfileStackParamList in userNavigator.tsx
+
+export type ProfileStackParamList = {
+  ProfileMain: undefined;
+  ChangePassword: undefined;
+  Appearance: undefined;
+  TermsOfService: undefined;  // New screen
+  PrivacyPolicy: undefined;   // New screen
+  HelpSupport: undefined;     // New screen
+};
+
+const Tab = createBottomTabNavigator<UserTabParamList>();
+const ProfileStack = createStackNavigator<ProfileStackParamList>();
+
 
 const UserNavigator = () => {
   const { colors } = useTheme();

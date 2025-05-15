@@ -1,4 +1,5 @@
-// app/screens/user/profile.tsx
+// app/screens/user/profile.tsx - corrected version
+
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -41,6 +42,35 @@ export default function ProfileScreen() {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
+  // Add this helper function in the ProfileScreen component
+  const formatTimestamp = (timestamp: any): string => {
+    if (!timestamp) return 'Unknown';
+    
+    try {
+      // Handle different possible types of the timestamp
+      if (typeof timestamp === 'string') {
+        // If it's already a string, attempt to parse it directly
+        return new Date(timestamp).toLocaleDateString();
+      } 
+      else if (timestamp instanceof Date) {
+        // If it's already a Date object
+        return timestamp.toLocaleDateString();
+      }
+      else if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+        // If it's a Firestore Timestamp object
+        return timestamp.toDate().toLocaleDateString();
+      }
+      else if (timestamp.seconds && timestamp.nanoseconds) {
+        // If it's a Firestore Timestamp-like object
+        return new Date(timestamp.seconds * 1000).toLocaleDateString();
+      }
+      // Default fallback - return current date
+      return new Date().toLocaleDateString();
+    } catch (err) {
+      console.error('Error formatting timestamp:', err);
+      return 'Unknown date';
+    }
+  };
   
   useEffect(() => {
     const loadUser = async () => {
@@ -335,6 +365,7 @@ export default function ProfileScreen() {
             </View>
           </View>
           
+          {/* Joined date section */}
           <View style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}>
             <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="calendar-outline" size={20} color={colors.primary} />
@@ -342,7 +373,7 @@ export default function ProfileScreen() {
             <View style={styles.menuItemContent}>
               <Text style={[styles.menuItemTitle, { color: colors.text }]}>Joined</Text>
               <Text style={[styles.menuItemValue, { color: colors.textLight }]}>
-                {new Date(user.createdAt).toLocaleDateString()}
+                {formatTimestamp(user.createdAt)}
               </Text>
             </View>
           </View>
@@ -401,13 +432,17 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Support section */}
         <View style={[styles.sectionContainer, { backgroundColor: colors.cardBackground }]}>
           <Text style={[styles.sectionTitle, { 
             color: colors.text,
             borderBottomColor: colors.borderColor 
           }]}>Support</Text>
           
-          <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}>
+          <TouchableOpacity 
+            style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}
+            onPress={() => navigation.navigate('HelpSupport')}
+          >
             <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="help-circle-outline" size={20} color={colors.primary} />
             </View>
@@ -417,7 +452,10 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
           
-          <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}>
+          <TouchableOpacity 
+            style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}
+            onPress={() => navigation.navigate('TermsOfService')}
+          >
             <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="document-text-outline" size={20} color={colors.primary} />
             </View>
@@ -427,7 +465,10 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
           
-          <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}>
+          <TouchableOpacity 
+            style={[styles.menuItem, { borderBottomColor: colors.borderColor }]}
+            onPress={() => navigation.navigate('PrivacyPolicy')}
+          >
             <View style={[styles.menuItemIconContainer, { backgroundColor: isDarkMode ? '#2A2A2A' : '#F3F4F6' }]}>
               <Ionicons name="shield-outline" size={20} color={colors.primary} />
             </View>
