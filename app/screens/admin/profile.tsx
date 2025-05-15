@@ -12,7 +12,7 @@ import {
   TextInput,
   Modal,
 } from 'react-native';
-import { signOut, getCurrentUser, updateUserProfile } from '../../../src/firebase/auth';
+import { signOut, getCurrentUser } from '../../../src/firebase/auth';
 import { colors, spacing, fontSizes } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import type { User } from '../../../src/firebase/types';
